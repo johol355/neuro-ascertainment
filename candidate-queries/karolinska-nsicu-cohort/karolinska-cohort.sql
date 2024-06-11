@@ -1,4 +1,6 @@
 -- Redefine the PAR table adding a unique HADM_ID
+-- Keep only admissions where the patient was >= 18 yrs at admission
+-- Keep only admissions after 2010/01/01
 WITH PAR_HADM AS (
     SELECT *,
            ROW_NUMBER() OVER ( 
@@ -14,7 +16,7 @@ WITH PAR_HADM AS (
 )
 ,
 
--- Define all ICU admission to a KS ICU
+-- Define all ICU admission to a K ICU (CIVA/NIVA)
 K_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
@@ -22,55 +24,21 @@ K_ICU_ADMISSIONS AS (
         S.InskrTidPunkt,
         S.UtskrTidPunkt
     FROM SIR_BASDATA S
-    WHERE
-        S.AvdNamn IN 
-        ('S-CIVA',
-        'S-NIVA'
-        )
+    WHERE S.AvdNamn IN ('S-CIVA','S-NIVA')
 ),
 
--- Define all KS ICU admission in KS_ADMISSION where the patient has
--- a HADM in PAR at KS +/- 1 day of the KS_ADMISSION admit
--- Returns KS_ADMISSION
--- id (VtfId_LopNr) and HADM_ID for the KS admission.
+-- Define a window with all ICU admissions in K_ICU_ADMISSIONS
+-- matched (by left join) with PAR admissions in PAR_HADM fulfilling the criteria:
+-- PAR admission at K
+-- PAR admission starting from 14 days prior to ICU admission up to 2 days after ICU admission
+-- If no PAR admission matching the SIR admission the latter will drop out
+-- If multiple PAR admissions fulfill matching criteria, multiple rows will be returned for that SIR admission
+
 K_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
-    SELECT
-        VtfId_LopNr,
-        HADM_ID,
-        LopNr,
-        INDATUM,
-        UTDATUM,
-        IVA_IN,
-        IVA_UT,
-        MVO,
-        SJUKHUS,
-        DIAGNOS,
-        OP,
-        Alder,
-        Kon
-        
-    FROM (
-        SELECT
-        S.VtfId_LopNr,
-        P.HADM_ID,
-        P.LopNr,
-        P.UTDATUM - P.INDATUM as PAR_ADMISSION_LENGTH,
-        P.INDATUM,
-        P.UTDATUM,
-        P.MVO,
-        P.SJUKHUS,
-        P.DIAGNOS,
-        P.OP,
-        P.Alder,
-        P.Kon,
-        S.InskrTidPunkt / 86400 as IVA_IN,
-        S.UtskrTidPunkt / 86400 as IVA_UT
-        FROM SIR_BASDATA S
-        LEFT JOIN PAR_HADM P ON P.LopNr = S.LopNr
-        WHERE S.VtfId_LopNr IN (SELECT VtfId_LopNr FROM K_ICU_ADMISSIONS)
-        AND P.INDATUM - S.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2)
-        AND P.Sjukhus IN ('11001', '11003')
-    )
+    SELECT * FROM K_ICU_ADMISSIONS K
+    LEFT JOIN PAR_HADM P ON K.LopNr == P.LopNr
+    WHERE P.INDATUM - K.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2)
+    AND P.Sjukhus IN ('11001', '11003')
 ),
 
 -- Define "DX_GROUP" (diagnosis group) for all admissions in PAR_HADM.
@@ -322,173 +290,44 @@ tum AS (
         AND P.Op NOT LIKE "%AAC00%"
 ),
 
--- All defined DX "merged"
 DX AS (
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'ASAH' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM asah)
+    SELECT
+        P.HADM_ID,
+        P.LopNr,
+        P.Diagnos,
+        CASE
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM asah) THEN 'ASAH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ich) THEN 'ICH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM tbi) THEN 'TBI'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ais) THEN 'AIS'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM abm) THEN 'ABM'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM cvt) THEN 'CVT'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ence) THEN 'ENC'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM se) THEN 'SEP'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM avm) THEN 'AVM'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM cfx) THEN 'CFX'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM sdh) THEN 'SDH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM hc) THEN 'HC'
+            ELSE 'TUM'
+        END AS DX_GROUP
+    FROM
+        PAR_HADM P
+    WHERE
+        P.SJUKHUS IN (11001, 11003)
+),
 
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'ICH' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM ich)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'TBI' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM tbi)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'AIS' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM ais)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'ABM' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM abm)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'CVT' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM cvt)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'ENC' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM ence)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'SEP' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM se)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'AVM' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM avm)
-
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'CFX' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM cfx)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'SDH' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM sdh)
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'HC' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM hc)
-
-
-UNION ALL
-
-SELECT
-    P.HADM_ID,
-    P.LopNr,
-    P.Diagnos,
-    'TUM' AS DX_GROUP
-FROM
-    PAR_HADM P
-WHERE
-    P.HADM_ID IN (SELECT HADM_ID FROM tum)
-)
-,
-
+-- Create a window where the SIR-PAR matched cohort is joined (on
+-- PAR admission ID) with the diagnostic group window (based on PAR dx)
+-- If a dx criteria can't be fulfilled for a PAR admit, the
+-- DX_GROUP column will be NaN
 K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
     SELECT *
-    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR
-    LEFT JOIN DX ON DX.HADM_ID = K_ICU_ADMISSIONS_MATCHED_WITH_PAR.HADM_ID
+    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR K
+    LEFT JOIN DX D ON K.HADM_ID = D.HADM_ID
 )
 ,
 
+-- Get descriptive data from SIR SAPS3, SOFA and other tables for a summary 
 DESCRIPTIVE AS (
     SELECT
     -----------------------------------------
@@ -755,7 +594,7 @@ DESCRIPTIVE AS (
         -- Days alive from KS hospital admission
         JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) AS days_alive
 
-    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR as P
+    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX as P
     LEFT JOIN DORS DO on P.LopNr = DO.LopNr
     LEFT JOIN SIR_BASDATA S on P.VtfId_LopNr = S.VtfId_LopNr
     LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr= SAPS.VtfId_LopNr
@@ -769,11 +608,5 @@ DESCRIPTIVE AS (
             FROM SIR_SOFA
             GROUP BY VtfId_LopNr
        ) AS SOFA on S.VtfId_LopNr = SOFA.VtfId_LopNr
-    WHERE P.HADM_ID IN (SELECT HADM_ID FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX)
-    AND S.VtfId_LopNr IN (SELECT VtfId_LopNr FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX)
 )
 
-
-SELECT * FROM DESCRIPTIVE
---SELECT * FROM PAR_HADM
---WHERE HADM_ID == 216807
