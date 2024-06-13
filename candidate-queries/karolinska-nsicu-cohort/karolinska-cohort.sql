@@ -37,7 +37,7 @@ K_ICU_ADMISSIONS AS (
 K_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     SELECT * FROM K_ICU_ADMISSIONS K
     LEFT JOIN PAR_HADM P ON K.LopNr == P.LopNr
-    WHERE P.INDATUM - K.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2)
+    WHERE P.INDATUM - K.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
     AND P.Sjukhus IN ('11001', '11003')
 ),
 
@@ -308,7 +308,8 @@ DX AS (
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM cfx) THEN 'CFX'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM sdh) THEN 'SDH'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM hc) THEN 'HC'
-            ELSE 'TUM'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM tum) THEN 'TUM'
+            ELSE 'OTHER'
         END AS DX_GROUP
     FROM
         PAR_HADM P
@@ -333,7 +334,6 @@ DESCRIPTIVE AS (
     -----------------------------------------
     ------------- DEMOGRAHPICS --------------
     -----------------------------------------
-
     --- Admission ID et cetera ---
         P.LopNr,
         P.HADM_ID,
