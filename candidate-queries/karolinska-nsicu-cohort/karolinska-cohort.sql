@@ -1,4 +1,4 @@
--- Redefine the PAR table adding a unique HADM_ID
+-- PAR_HADM is a redefined PAR table adding a unique HADM_ID to each admission
 -- Keep only admissions where the patient was >= 18 yrs at admission
 -- Keep only admissions after 2010/01/01
 WITH PAR_HADM AS (
@@ -16,35 +16,44 @@ WITH PAR_HADM AS (
 )
 ,
 
--- Define all ICU admission to a K ICU (CIVA/NIVA)
+-- K_ICU_ADMISSIONS has some basic information about all 
+-- ICU admissions to a K ICU (CIVA/NIVA)
 K_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
         S.LopNr,
         S.InskrTidPunkt,
-        S.UtskrTidPunkt
+        S.UtskrTidPunkt,
+        S.AvdNamn
     FROM SIR_BASDATA S
     WHERE S.AvdNamn IN ('S-CIVA','S-NIVA')
 ),
 
--- Define a window with all ICU admissions in K_ICU_ADMISSIONS
--- matched (by left join) with PAR admissions in PAR_HADM fulfilling the criteria:
+-- In K_ICU_ADMISSIONS_MATCHED_WITH_PAR all ICU admissions in 
+-- K_ICU_ADMISSIONS are matched (by left join) with PAR admissions in PAR_HADM fulfilling the criteria:
 -- PAR admission at K
--- PAR admission starting from 14 days prior to ICU admission up to 2 days after ICU admission
+-- PAR admission starting from 14 days prior to ICU admission up to 14 days after ICU admission
 -- If no PAR admission matching the SIR admission the latter will drop out
 -- If multiple PAR admissions fulfill matching criteria, multiple rows will be returned for that SIR admission
-
 K_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
-    SELECT * FROM K_ICU_ADMISSIONS K
+    SELECT 
+        K.VtfId_LopNr,
+        P.HADM_ID,
+        K.LopNr,
+        K.InskrTidPunkt,
+        K.UtskrTidPunkt,
+        K.AvdNamn,
+        P.INDATUM,
+        P.UTDATUM,
+        P.MVO,
+        P.SJUKHUS
+    FROM K_ICU_ADMISSIONS K
     LEFT JOIN PAR_HADM P ON K.LopNr == P.LopNr
     WHERE P.INDATUM - K.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
     AND P.Sjukhus IN ('11001', '11003')
 ),
 
--- Define "DX_GROUP" (diagnosis group) for all admissions in PAR_HADM.
--- Use referenced ascertainment strategies for important NSICU DX.
--- Categories all others as "OTHER dx"
-
+-- A set of diagnoses will be filtered on specific criteria
 -- aSAH
 asah AS (
     SELECT
@@ -59,7 +68,9 @@ asah AS (
         P.SJUKHUS IN (11001, 11003)
           AND (
             (
-                (P.Diagnos LIKE "I60%" OR P.Diagnos LIKE "I671%" OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is included: If you are sick enough to get admitted to an ICU, it is still a relevant dx
+                (P.Diagnos LIKE "I60%"
+                OR P.Diagnos LIKE "I671%"
+                OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is included: If you are sick enough to get admitted to an ICU, it is still a relevant dx
                 AND P.Diagnos NOT LIKE "%S06%")
 
           OR (P.Diagnos LIKE "I60%" AND P.Diagnos LIKE "%S06%" AND (P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%"))
@@ -290,6 +301,9 @@ tum AS (
         AND P.Op NOT LIKE "%AAC00%"
 ),
 
+-- DX finds the diagnostic group for each entry in PAR_HADM. Note that one HADM
+-- can have several diagnostic criteria fulfilled (although it is rare), therefore
+-- there can be several rows for same admission
 DX AS (
     SELECT
         P.HADM_ID,
@@ -319,56 +333,100 @@ DX AS (
 
 -- Create a window where the SIR-PAR matched cohort is joined (on
 -- PAR admission ID) with the diagnostic group window (based on PAR dx)
--- If a dx criteria can't be fulfilled for a PAR admit, the
--- DX_GROUP column will be NaN
 K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
-    SELECT *
+    SELECT
+        K.VtfId_LopNr,
+        K.HADM_ID,
+        K.LopNr,
+        K.InskrTidPunkt,
+        K.UtskrTidPunkt,
+        K.AvdNamn,
+        K.INDATUM,
+        K.UTDATUM,
+        K.MVO,
+        K.SJUKHUS,
+        P.DIAGNOS,
+        P.OP,
+        D.DX_GROUP
     FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR K
     LEFT JOIN DX D ON K.HADM_ID = D.HADM_ID
+    LEFT JOIN PAR_HADM P ON K.HADM_ID = P.HADM_ID
 )
 ,
 
--- Get descriptive data from SIR SAPS3, SOFA and other tables for a summary 
-DESCRIPTIVE AS (
-    SELECT
+-- K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY helps resolving tie situations
+-- where one SIR admission is associated with several PAR admissions.
+-- In this case the earliest (within the time window) admissions is chosen,
+-- if there still is a tie a hierarchical ordering of diagnosis will choose one admission only
+K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY VtfId_LopNr 
+               ORDER BY INDATUM, 
+                        CASE DX_GROUP
+                            WHEN 'TBI' THEN 1
+                            WHEN 'ASAH' THEN 2
+                            WHEN 'AIS' THEN 3
+                            WHEN 'ICH' THEN 4
+                            WHEN 'ABM' THEN 5
+                            WHEN 'CFX' THEN 6
+                            WHEN 'ENC' THEN 7
+                            WHEN 'TUM' THEN 8
+                            WHEN 'SEP' THEN 9
+                            WHEN 'HC' THEN 10
+                            ELSE 11 -- for any other value not specified
+                        END
+           ) AS DX_ORDER
+   FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
+   WHERE DX_GROUP != "OTHER"
+)
+,
+
+-- K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME helps resolving tie situations
+-- where one SIR admission is associated with several PAR admissions.
+-- In this case the hierarchical ordering of diagnoses will decide which admission is picked,
+-- if there still is a tie the earliest PAR admission is choosen
+K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY VtfId_LopNr 
+               ORDER BY
+                        CASE DX_GROUP
+                            WHEN 'TBI' THEN 1
+                            WHEN 'ASAH' THEN 2
+                            WHEN 'AIS' THEN 3
+                            WHEN 'ICH' THEN 4
+                            WHEN 'ABM' THEN 5
+                            WHEN 'CFX' THEN 6
+                            WHEN 'ENC' THEN 7
+                            WHEN 'TUM' THEN 8
+                            WHEN 'SEP' THEN 9
+                            WHEN 'HC' THEN 10
+                            ELSE 11 -- for any other value not specified
+                        END,
+                        INDATUM
+           ) AS DX_ORDER
+    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
+    WHERE DX_GROUP != 'OTHER'
+)
+,
+
+-- DESCRIPTIVE_SIR collects data from several SIR tables (including SAPS, SOFA) joined on SIR admission ID
+DESCRIPTIVE_SIR AS (
+   SELECT
     -----------------------------------------
     ------------- DEMOGRAHPICS --------------
     -----------------------------------------
-    --- Admission ID et cetera ---
-        P.LopNr,
-        P.HADM_ID,
-        P.MVO,
-        P.Diagnos,
-        P.Op,
         S.VtfId_LopNr,
-        P.Sjukhus AS tertiary_center_id,
---        CASE P.Sjukhus
---                WHEN '11001' THEN 'Karolinska universitetssjukhuset, Solna'
---                WHEN '11003' THEN 'Karolinska universitetssjukhuset, Solna'
---                WHEN '51001' THEN 'Sahlgrenska universitetssjukhuset'
---                WHEN '12001' THEN 'Akademiska sjukhuset'
---                WHEN '21001' THEN 'Universitetssjukhuset i Linköping'
---                WHEN '64001' THEN 'Norrlands universitetssjukhus'
---                WHEN '41001' THEN 'Universitetssjukhuset i Lund'
---                WHEN '41002' THEN 'Universitetssjukhuset i Lund'
---                ELSE P.Sjukhus -- If none of the above cases match, keep the original value
---            END AS par_tertiary_center,
-        P.INDATUM AS par_adm_date,
-        P.UTDATUM AS par_dsc_date,
         S.AvdNamn AS sir_icu_name,
         CASE S.SjukhusTyp
             WHEN 'Länssjukhus' THEN 'Regional Hospital'
             WHEN 'Länsdelssjukhu' THEN 'Community Hospital'
             WHEN 'Regionsjukhus' THEN 'University Hospital'
           END AS sir_hospital_type,
-       -- S.SjukhusTyp AS sir_hospital_type,
         S.InskrTidPunkt AS sir_adm_time,
+        S.UtskrTidPunkt AS sir_dsc_time,
         S.VardTidMinuter AS sir_total_time,
-    --- demographics ---
-        P.Alder AS age,
-        CASE WHEN P.Kon = '1' THEN 0 ELSE 1 END AS sex_female,
-    --- Inferred diagnosis ---
-        D.DX_GROUP,
     --- Height, weight, BMI ---
         S.Lengd AS admission_height,
         S.AnkIvaVikt AS admission_weight,
@@ -579,26 +637,9 @@ DESCRIPTIVE AS (
         CASE
             WHEN SAPS.SAPS3_KroppstempMax < 35 THEN 1 
             WHEN SAPS.SAPS3_KroppstempMax IS NULL THEN NULL
-            ELSE 0 END AS SAPS_hypothermia,
-        
-        --- Outcomes ---
-        -- Crude 7d, 30d, 90d, 365d mortality from KS hospital admission
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 7 THEN 1 ELSE 0 END AS d7,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 30 THEN 1 ELSE 0 END AS d30,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 90 THEN 1 ELSE 0 END AS d90,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 365 THEN 1 ELSE 0 END AS d365,
-        -- Days alive from KS hospital admission
-        JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) AS days_alive
-
-    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX as P
-    LEFT JOIN DORS DO on P.LopNr = DO.LopNr
-    LEFT JOIN SIR_BASDATA S on P.VtfId_LopNr = S.VtfId_LopNr
+            ELSE 0 END AS SAPS_hypothermia
+    FROM SIR_BASDATA S
     LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr= SAPS.VtfId_LopNr
-    LEFT JOIN DX D on P.HADM_ID = D.HADM_ID
     LEFT JOIN (
             SELECT
                 VtfId_LopNr,
@@ -608,5 +649,62 @@ DESCRIPTIVE AS (
             FROM SIR_SOFA
             GROUP BY VtfId_LopNr
        ) AS SOFA on S.VtfId_LopNr = SOFA.VtfId_LopNr
-)
+),
 
+-- DESCRIPTIVE_SIR collects data from PAR and DORS (data on death date) on PAR_HADM id and in
+-- the case of death date data on patient ID + admission date in PAR.
+DESCRIPTIVE_PAR AS (
+    SELECT
+        P.HADM_ID,
+        P.Alder AS age,
+        CASE P.Sjukhus
+                WHEN '11001' THEN 'Karolinska universitetssjukhuset, Solna'
+                WHEN '11003' THEN 'Karolinska universitetssjukhuset, Solna'
+                WHEN '51001' THEN 'Sahlgrenska universitetssjukhuset'
+                WHEN '12001' THEN 'Akademiska sjukhuset'
+                WHEN '21001' THEN 'Universitetssjukhuset i Linköping'
+                WHEN '64001' THEN 'Norrlands universitetssjukhus'
+                WHEN '41001' THEN 'Universitetssjukhuset i Lund'
+                WHEN '41002' THEN 'Universitetssjukhuset i Lund'
+                ELSE P.Sjukhus -- If none of the above cases match, keep the original value
+        END AS par_tertiary_center,
+        CASE WHEN P.Kon = '1' THEN 0 ELSE 1 END AS sex_female,
+   
+    --- Outcomes ---
+    -- Crude 7d, 30d, 90d, 365d mortality from KS hospital admission
+        CASE WHEN
+            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 7 THEN 1 ELSE 0 END AS d7,
+        CASE WHEN
+            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 30 THEN 1 ELSE 0 END AS d30,
+        CASE WHEN
+            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 90 THEN 1 ELSE 0 END AS d90,
+        CASE WHEN
+            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 365 THEN 1 ELSE 0 END AS d365,
+ ---- Days alive from KS hospital admission
+        JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) AS days_alive
+    FROM PAR_HADM P
+    LEFT JOIN DORS DO on P.LopNr = DO.LopNr
+),
+
+-- The SUMMARY_TABLE joins K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
+-- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
+-- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
+SUMMARY_TABLE AS (
+SELECT
+    K.LopNr,
+    D.VtfId_LopNr,
+    P.HADM_ID,
+    P.par_tertiary_center,
+    K.INDATUM as par_adm_date,
+    K.UTDATUM as par_dsc_date,
+    P.sex_female,
+    P.age,
+    K.DX_GROUP,
+    K.DX_ORDER,
+    D.*
+FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY K
+LEFT JOIN DESCRIPTIVE_PAR P ON K.HADM_ID = P.HADM_ID
+LEFT JOIN DESCRIPTIVE_SIR D ON K.VtfId_LopNr = D.VtfId_LopNr
+WHERE DX_ORDER = 1
+GROUP BY LopNr HAVING MIN(sir_adm_time)
+)
