@@ -73,7 +73,7 @@ PR_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
         P.SJUKHUS
     FROM PR_ICU_ADMISSIONS PR
     LEFT JOIN PAR_HADM P ON PR.LopNr == P.LopNr
-    WHERE P.INDATUM - PR.InskrTidPunkt / 86400 IN (-1, 0, 1)
+    WHERE P.INDATUM - PR.UtskrTidPunkt / 86400 IN (-1, 0, 1)
     -- Maybe add a mehcnaism where -1 is ok if ICU dsc is say > 10 pm
     AND P.Sjukhus IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
 ),
@@ -715,7 +715,18 @@ SELECT
     P.days_alive,
     COUNT() OVER (PARTITION BY LopNr) as rows_per_patient,
     PR.INDATUM - D.sir_dsc_time/86400 as par_admit_relative_sir_dsc,
-    MIN(PR.INDATUM) OVER (PARTITION BY LopNr) as earliest_par_admit_date
+    MIN(PR.INDATUM) OVER (PARTITION BY LopNr) as earliest_par_admit_date,
+    -- this ranks differnces between tertiary admit and pricu discharge. Ranked by: same day, icu dsc day before, icu dsc day after. Based on likeliness of being relevant.
+    ROW_NUMBER() OVER (PARTITION BY LopNr ORDER BY 
+        CASE 
+            WHEN PR.INDATUM - D.sir_dsc_time/86400 = 0 THEN 1
+            WHEN PR.INDATUM - D.sir_dsc_time/86400 = 1 THEN 2
+            WHEN PR.INDATUM - D.sir_dsc_time/86400 = -1 THEN 3
+            ELSE 4
+        END,
+        -- if tie: choose latest discharge on a day
+        D.sir_dsc_time DESC) AS icu_admit_rank
+
 FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY PR
 LEFT JOIN DESCRIPTIVE_PAR P ON PR.HADM_ID = P.HADM_ID
 LEFT JOIN DESCRIPTIVE_SIR D ON PR.VtfId_LopNr = D.VtfId_LopNr
@@ -725,6 +736,6 @@ WHERE DX_ORDER = 1
 SUMMARY_TABLE_FIRST AS (
 SELECT *
 FROM SUMMARY_TABLE
-WHERE par_admit_relative_sir_dsc IN (0,1)
+WHERE par_adm_date = earliest_par_admit_date
+GROUP BY LopNr HAVING MIN(icu_admit_rank)
 )
-
