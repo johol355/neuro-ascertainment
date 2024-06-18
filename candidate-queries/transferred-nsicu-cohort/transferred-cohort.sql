@@ -16,9 +16,10 @@ WITH PAR_HADM AS (
 )
 ,
 
--- K_ICU_ADMISSIONS has some basic information about all 
--- ICU admissions to a K ICU (CIVA/NIVA)
-K_ICU_ADMISSIONS AS (
+-- PR_ICU_ADMISSIONS has some basic information about all 
+-- ICU admissions to a primary ICU
+-- And admitted less than 24 hrs
+PR_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
         S.LopNr,
@@ -26,7 +27,30 @@ K_ICU_ADMISSIONS AS (
         S.UtskrTidPunkt,
         S.AvdNamn
     FROM SIR_BASDATA S
-    WHERE S.AvdNamn IN ('S-CIVA','S-NIVA')
+    WHERE S.AvdNamn NOT IN 
+        ('S-CIVA',
+        'S-NIVA',
+        'KS/THIVA',
+        'KS ECMO',
+        'Astrid Lindgren',
+        'IVA Lund',
+        'Lund - BIVA',
+        'Lund - NIVA',
+        'Linköping',
+        'Linköping NIVA',
+        'Linköping BRIVA',
+        'SU/NIVA',
+        'SU/CIVA',
+        'SU/TIVA',
+        'Umeå IVA',
+        'Umeå - Thorax',
+        'Uppsala',
+        'Uppsala BRIVA',
+        'Uppsala TIVA',
+        'Uppsala BIVA',
+        'Uppsala NIVA'
+        )
+    AND VardTidMinuter < 1440
 ),
 
 -- In K_ICU_ADMISSIONS_MATCHED_WITH_PAR all ICU admissions in 
@@ -35,22 +59,23 @@ K_ICU_ADMISSIONS AS (
 -- PAR admission starting from 14 days prior to ICU admission up to 14 days after ICU admission
 -- If no PAR admission matching the SIR admission the latter will drop out
 -- If multiple PAR admissions fulfill matching criteria, multiple rows will be returned for that SIR admission
-K_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
+PR_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     SELECT 
-        K.VtfId_LopNr,
+        PR.VtfId_LopNr,
         P.HADM_ID,
-        K.LopNr,
-        K.InskrTidPunkt,
-        K.UtskrTidPunkt,
-        K.AvdNamn,
+        PR.LopNr,
+        PR.InskrTidPunkt,
+        PR.UtskrTidPunkt,
+        PR.AvdNamn,
         P.INDATUM,
         P.UTDATUM,
         P.MVO,
         P.SJUKHUS
-    FROM K_ICU_ADMISSIONS K
-    LEFT JOIN PAR_HADM P ON K.LopNr == P.LopNr
-    WHERE P.INDATUM - K.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
-    AND P.Sjukhus IN ('11001', '11003')
+    FROM PR_ICU_ADMISSIONS PR
+    LEFT JOIN PAR_HADM P ON PR.LopNr == P.LopNr
+    WHERE P.INDATUM - PR.InskrTidPunkt / 86400 IN (-1, 0, 1)
+    -- Maybe add a mehcnaism where -1 is ok if ICU dsc is say > 10 pm
+    AND P.Sjukhus IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
 ),
 
 -- A set of diagnoses will be filtered on specific criteria
@@ -65,7 +90,7 @@ asah AS (
     LEFT JOIN
         DORS D ON P.LopNr = D.LopNr
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
           AND (
             (
                 (P.Diagnos LIKE "I60%"
@@ -96,7 +121,7 @@ tbi AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND 
             ((P.Diagnos LIKE "S06%") OR
             ((P.Diagnos LIKE "S020%" OR
@@ -117,7 +142,7 @@ cvt AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "G08%"
         OR P.Diagnos LIKE "I676%"
         OR P.Diagnos LIKE "I636%"
@@ -139,7 +164,7 @@ ich AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "I61%")
         -- A few likely aSAH that fulfill the above criteria will need to be filtered out as such:
         AND (P.Op NOT LIKE "%AAC00%")
@@ -154,7 +179,7 @@ avm AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "Q28%")
         AND (P.Op NOT LIKE "%AAL00%")
         AND (P.Op NOT LIKE "%AAC00%")
@@ -168,7 +193,7 @@ ais AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "I63%")
         AND (P.Diagnos NOT LIKE "I636%")
         -- a few likely aSAH that fulfill the above criteria will need to be filtered out as such:
@@ -184,7 +209,7 @@ abm AS (
         FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE "G00%" OR
             P.Diagnos LIKE "A390%" OR
@@ -202,7 +227,7 @@ ence AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE "G04%" OR
             P.Diagnos LIKE "G05%" OR
@@ -220,7 +245,7 @@ se AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE "G41%" OR
             -- also include epilepsy
@@ -236,7 +261,7 @@ cfx AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE 'S12%' OR
             P.Diagnos LIKE 'S13%' OR
@@ -254,7 +279,7 @@ sdh AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE 'I62%'
         )
@@ -272,7 +297,7 @@ hc AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE 'G91%'
         )
@@ -289,7 +314,7 @@ tum AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
             P.Diagnos LIKE 'D43%'
             OR P.Diagnos LIKE 'C71%'
@@ -328,29 +353,29 @@ DX AS (
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003)
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
 ),
 
 -- Create a window where the SIR-PAR matched cohort is joined (on
 -- PAR admission ID) with the diagnostic group window (based on PAR dx)
-K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
+PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
     SELECT
-        K.VtfId_LopNr,
-        K.HADM_ID,
-        K.LopNr,
-        K.InskrTidPunkt,
-        K.UtskrTidPunkt,
-        K.AvdNamn,
-        K.INDATUM,
-        K.UTDATUM,
-        K.MVO,
-        K.SJUKHUS,
+        PR.VtfId_LopNr,
+        PR.HADM_ID,
+        PR.LopNr,
+        PR.InskrTidPunkt,
+        PR.UtskrTidPunkt,
+        PR.AvdNamn,
+        PR.INDATUM,
+        PR.UTDATUM,
+        PR.MVO,
+        PR.SJUKHUS,
         P.DIAGNOS,
         P.OP,
         D.DX_GROUP
-    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR K
-    LEFT JOIN DX D ON K.HADM_ID = D.HADM_ID
-    LEFT JOIN PAR_HADM P ON K.HADM_ID = P.HADM_ID
+    FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR PR
+    LEFT JOIN DX D ON PR.HADM_ID = D.HADM_ID
+    LEFT JOIN PAR_HADM P ON PR.HADM_ID = P.HADM_ID
 )
 ,
 
@@ -358,7 +383,7 @@ K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
 -- where one SIR admission is associated with several PAR admissions.
 -- In this case the earliest (within the time window) admissions is chosen,
 -- if there still is a tie a hierarchical ordering of diagnosis will choose one admission only
-K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
+PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
     SELECT *,
            ROW_NUMBER() OVER (
                PARTITION BY VtfId_LopNr 
@@ -377,37 +402,8 @@ K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
                             ELSE 11 -- for any other value not specified
                         END
            ) AS DX_ORDER
-   FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
+   FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
    WHERE DX_GROUP != "OTHER"
-)
-,
-
--- K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME helps resolving tie situations
--- where one SIR admission is associated with several PAR admissions.
--- In this case the hierarchical ordering of diagnoses will decide which admission is picked,
--- if there still is a tie the earliest PAR admission is choosen
-K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
-    SELECT *,
-           ROW_NUMBER() OVER (
-               PARTITION BY VtfId_LopNr 
-               ORDER BY
-                        CASE DX_GROUP
-                            WHEN 'TBI' THEN 1
-                            WHEN 'ASAH' THEN 2
-                            WHEN 'AIS' THEN 3
-                            WHEN 'ICH' THEN 4
-                            WHEN 'ABM' THEN 5
-                            WHEN 'CFX' THEN 6
-                            WHEN 'ENC' THEN 7
-                            WHEN 'TUM' THEN 8
-                            WHEN 'SEP' THEN 9
-                            WHEN 'HC' THEN 10
-                            ELSE 11 -- for any other value not specified
-                        END,
-                        INDATUM
-           ) AS DX_ORDER
-    FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
-    WHERE DX_GROUP != 'OTHER'
 )
 ,
 
@@ -689,27 +685,46 @@ DESCRIPTIVE_PAR AS (
 -- The SUMMARY_TABLE joins K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
 -- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
 -- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
+-- Keeping track of the earliest date where a SIR admit fulfills the criteria helps us filtering out (after grouping by LopNr) the latest ICU admit
+-- prior to transfer that day, in case there are readmissions.
+-- Limitations:
+    -- Consider the situation where a patient is transferred Primary A -> Primary B -> Tertiary on days 0, 1, 1. The current logic
+    -- Will filter out the Primary B admit as it is not on the "earliest date". Therefore the transfer will be classified as A->Tertiary.
+    -- To tease this out we could try an approach with an even more complicated algorithm... at this point we are just squeezing a balloon.
+
+--- another type of logic: check earliest PAR admit date, find matching sir admit closest to it = tricky...
+-- or remove all with >1 sir admit matched == cleaner. or at least >1 hospital.
+
 SUMMARY_TABLE AS (
 SELECT
-    K.LopNr,
+    PR.LopNr,
     D.VtfId_LopNr,
     P.HADM_ID,
     P.par_tertiary_center,
-    K.INDATUM as par_adm_date,
-    K.UTDATUM as par_dsc_date,
+    PR.INDATUM as par_adm_date,
+    PR.UTDATUM as par_dsc_date,
     P.sex_female,
     P.age,
-    K.DX_GROUP,
-    K.DX_ORDER,
+    PR.DX_GROUP,
+    PR.DX_ORDER,
     D.*,
     P.d7,
     P.d30,
     P.d90,
     P.d365,
-    P.days_alive
-FROM K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY K
-LEFT JOIN DESCRIPTIVE_PAR P ON K.HADM_ID = P.HADM_ID
-LEFT JOIN DESCRIPTIVE_SIR D ON K.VtfId_LopNr = D.VtfId_LopNr
+    P.days_alive,
+    COUNT() OVER (PARTITION BY LopNr) as rows_per_patient,
+    PR.INDATUM - D.sir_dsc_time/86400 as par_admit_relative_sir_dsc,
+    MIN(PR.INDATUM) OVER (PARTITION BY LopNr) as earliest_par_admit_date
+FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY PR
+LEFT JOIN DESCRIPTIVE_PAR P ON PR.HADM_ID = P.HADM_ID
+LEFT JOIN DESCRIPTIVE_SIR D ON PR.VtfId_LopNr = D.VtfId_LopNr
 WHERE DX_ORDER = 1
-GROUP BY LopNr HAVING MIN(sir_adm_time)
+),
+
+SUMMARY_TABLE_FIRST AS (
+SELECT *
+FROM SUMMARY_TABLE
+WHERE par_admit_relative_sir_dsc IN (0,1)
 )
+
