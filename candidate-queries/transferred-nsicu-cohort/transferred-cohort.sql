@@ -18,7 +18,7 @@ WITH PAR_HADM AS (
 
 -- PR_ICU_ADMISSIONS has some basic information about all 
 -- ICU admissions to a primary ICU
--- And admitted less than 24 hrs
+-- And admitted less than 24 hrs (1440 minutes)
 PR_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
@@ -55,8 +55,8 @@ PR_ICU_ADMISSIONS AS (
 
 -- In K_ICU_ADMISSIONS_MATCHED_WITH_PAR all ICU admissions in 
 -- K_ICU_ADMISSIONS are matched (by left join) with PAR admissions in PAR_HADM fulfilling the criteria:
--- PAR admission at K
--- PAR admission starting from 14 days prior to ICU admission up to 14 days after ICU admission
+-- PAR admission at a tertiary hospital
+-- PAR admission starting from +/-1 days relative to ICU admission
 -- If no PAR admission matching the SIR admission the latter will drop out
 -- If multiple PAR admissions fulfill matching criteria, multiple rows will be returned for that SIR admission
 PR_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
@@ -74,7 +74,6 @@ PR_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     FROM PR_ICU_ADMISSIONS PR
     LEFT JOIN PAR_HADM P ON PR.LopNr == P.LopNr
     WHERE P.INDATUM - PR.UtskrTidPunkt / 86400 IN (-1, 0, 1)
-    -- Maybe add a mehcnaism where -1 is ok if ICU dsc is say > 10 pm
     AND P.Sjukhus IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
 ),
 
@@ -379,7 +378,7 @@ PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
 )
 ,
 
--- K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY helps resolving tie situations
+-- PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY helps resolving tie situations
 -- where one SIR admission is associated with several PAR admissions.
 -- In this case the earliest (within the time window) admissions is chosen,
 -- if there still is a tie a hierarchical ordering of diagnosis will choose one admission only
@@ -682,18 +681,11 @@ DESCRIPTIVE_PAR AS (
     LEFT JOIN DORS DO on P.LopNr = DO.LopNr
 ),
 
--- The SUMMARY_TABLE joins K_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
+-- The SUMMARY_TABLE joins PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
 -- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
 -- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
 -- Keeping track of the earliest date where a SIR admit fulfills the criteria helps us filtering out (after grouping by LopNr) the latest ICU admit
 -- prior to transfer that day, in case there are readmissions.
--- Limitations:
-    -- Consider the situation where a patient is transferred Primary A -> Primary B -> Tertiary on days 0, 1, 1. The current logic
-    -- Will filter out the Primary B admit as it is not on the "earliest date". Therefore the transfer will be classified as A->Tertiary.
-    -- To tease this out we could try an approach with an even more complicated algorithm... at this point we are just squeezing a balloon.
-
---- another type of logic: check earliest PAR admit date, find matching sir admit closest to it = tricky...
--- or remove all with >1 sir admit matched == cleaner. or at least >1 hospital.
 
 SUMMARY_TABLE AS (
 SELECT
@@ -714,8 +706,8 @@ SELECT
     P.d365,
     P.days_alive,
     COUNT() OVER (PARTITION BY LopNr) as rows_per_patient,
-    PR.INDATUM - D.sir_dsc_time/86400 as par_admit_relative_sir_dsc,
     MIN(PR.INDATUM) OVER (PARTITION BY LopNr) as earliest_par_admit_date,
+    PR.INDATUM - D.sir_dsc_time/86400 as par_admit_relative_sir_dsc,
     -- this ranks differnces between tertiary admit and pricu discharge. Ranked by: same day, icu dsc day before, icu dsc day after. Based on likeliness of being relevant.
     ROW_NUMBER() OVER (PARTITION BY LopNr ORDER BY 
         CASE 
@@ -733,9 +725,25 @@ LEFT JOIN DESCRIPTIVE_SIR D ON PR.VtfId_LopNr = D.VtfId_LopNr
 WHERE DX_ORDER = 1
 ),
 
+-- This view of the SUMMARY_TABLE keeps only the first PRICU-PAR pair based on a comparison with the first possible PAR admission date
+-- And the ICU admission ranking (trying to infer the most relevant PRICU admission for the transfer if there are several ICU admissions) 
 SUMMARY_TABLE_FIRST AS (
-SELECT *
-FROM SUMMARY_TABLE
-WHERE par_adm_date = earliest_par_admit_date
-GROUP BY LopNr HAVING MIN(icu_admit_rank)
+    SELECT *
+    FROM SUMMARY_TABLE
+    WHERE par_adm_date = earliest_par_admit_date
+    GROUP BY LopNr HAVING MIN(icu_admit_rank)
+),
+
+-- This view of SUMMARY_TABLE_FIRST discards all transfers with that are discharged from the PR ICU the day after PAR admission
+-- if the PR ICU discharge hour is not 00:00 - 03:59. (Decreasing the risk of a false positive transfer going in the other direction.)
+SUMMARY_TABLE_FIRST_PRUNE_LATE AS (
+    SELECT *
+    FROM SUMMARY_TABLE_FIRST
+    WHERE par_admit_relative_sir_dsc != -1
+    UNION ALL
+    SELECT *
+    FROM SUMMARY_TABLE_FIRST
+    WHERE par_admit_relative_sir_dsc = -1
+    AND strftime('%H', datetime(sir_dsc_time, 'unixepoch')) BETWEEN '00' AND '04'
 )
+
