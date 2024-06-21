@@ -578,7 +578,7 @@ DESCRIPTIVE_SIR AS (
         CASE
             WHEN SAPS.SAPS3_HjartfrekvMax > 110 THEN 1
             WHEN SAPS.SAPS3_HjartfrekvMax IS NULL THEN NULL
-            ELSE 0 END AS SAPS_bradycardia,
+            ELSE 0 END AS SAPS_tachycardia,
 
         -- SAPS3 bradycardia HR < 50
         CASE
