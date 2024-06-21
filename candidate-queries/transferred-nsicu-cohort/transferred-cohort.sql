@@ -574,11 +574,29 @@ DESCRIPTIVE_SIR AS (
         -- SAPS3 max HR
         SAPS.SAPS3_HjartfrekvMax as SAPS_max_HR,
 
+        -- SAPS3 tachycardia HR > 110 
+        CASE
+            WHEN SAPS.SAPS3_HjartfrekvMax > 110 THEN 1
+            WHEN SAPS.SAPS3_HjartfrekvMax IS NULL THEN NULL
+            ELSE 0 END AS SAPS_bradycardia,
+
+        -- SAPS3 bradycardia HR < 50
+        CASE
+            WHEN SAPS.SAPS3_HjartfrekvMax < 50 THEN 1
+            WHEN SAPS.SAPS3_HjartfrekvMax IS NULL THEN NULL
+            ELSE 0 END AS SAPS_bradycardia,
+
         -- SAPS3 hypotension SBP <90 --
         CASE
             WHEN SAPS.SAPS3_SystBTMin < 90 THEN 1
             WHEN SAPS.SAPS3_SystBTMin IS NULL THEN NULL
             ELSE 0 END AS SAPS_hypotension,
+
+         -- SAPS3 hypertension SBP >180 --
+        CASE
+            WHEN SAPS.SAPS3_SystBTMin > 180 THEN 1
+            WHEN SAPS.SAPS3_SystBTMin IS NULL THEN NULL
+            ELSE 0 END AS SAPS_hypertension,
 
         -- ICD10 and KVÅ makers for CV instability -
         CASE
