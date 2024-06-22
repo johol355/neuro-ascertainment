@@ -428,6 +428,19 @@ DESCRIPTIVE_SIR AS (
         S.AnkIvaVikt / (S.Lengd * S.Lengd) AS BMI,
     --- DNR orders (in the SIR_BEGRANSNINGAR VtfId_LopNr are only present if there is a DNR order) --- 
         CASE WHEN S.VtfId_LopNr IN (SELECT VtfId_LopNr FROM SIR_BEGRANSNINGAR) THEN 1 ELSE 0 END AS DNR,
+    --- After hours discharge ---
+        CASE
+            WHEN strftime('%H', datetime(S.UtskrTidPunkt, 'unixepoch')) IN ("8","9","10","11","12","13","14","15","16") THEN 1 ELSE 0 END AS icu_discharge_daytime,
+        CASE
+            WHEN strftime('%H', datetime(S.UtskrTidPunkt, 'unixepoch')) IN ("22","23","00","01","02","03","04","05","06") THEN 1 ELSE 0 END AS icu_discharge_nighttime,
+        CASE
+            WHEN (
+                strftime('%H', datetime(S.UtskrTidPunkt, 'unixepoch')) NOT IN ("8","9","10","11","12","13","14","15","16")
+                OR 
+                strftime('%w', datetime(S.UtskrTidPunkt, 'unixepoch')) IN ("0","6")
+            )
+            THEN 1 ELSE 0 END AS icu_discharge_afterhours
+        ,
     
     -----------------------------------------
     --- PHYSIOLOGY AND SEVERITY OF ILLNESS---
