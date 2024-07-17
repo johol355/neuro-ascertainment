@@ -653,6 +653,24 @@ DESCRIPTIVE_SIR AS (
         SAPS.SAPS3_pHMin as SAPS_min_pH,
         SAPS.SAPS3_KroppstempMax as SAPS_max_temp,
 
+        --- SAPS3 scores excluding other component ---
+        ---- Excluding GCS
+        SAPS.SAPS3_score - 
+        (CASE
+            WHEN (SAPS.SAPS3_RLS85 IS NULL AND SAPS.SAPS3_GCS IS NULL) THEN 1
+            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('1', '2'))
+                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('13', '14', '15'))) THEN 1
+            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('3', '4'))
+                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('7', '8', '9', '10', '11', '12'))) THEN 2
+            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('5'))
+                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('6'))) THEN 7.5
+            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('6'))
+                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('5'))) THEN 10
+            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('7', '8'))
+                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('3', '4'))) THEN 15
+            ELSE 0
+        END) AS SAPS_score_excluding_gcs,
+
         --- SAPS 3 acidosis (pH <7.25) ---
         CASE
             WHEN SAPS.SAPS3_pHMin < 7.25 THEN 1 
@@ -665,7 +683,7 @@ DESCRIPTIVE_SIR AS (
             WHEN SAPS.SAPS3_KroppstempMax IS NULL THEN NULL
             ELSE 0 END AS SAPS_hypothermia
     FROM SIR_BASDATA S
-    LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr= SAPS.VtfId_LopNr
+    LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr = SAPS.VtfId_LopNr
     LEFT JOIN (
             SELECT
                 VtfId_LopNr,
@@ -777,4 +795,3 @@ SUMMARY_TABLE_FIRST_PRUNE_LATE AS (
     WHERE par_admit_relative_sir_dsc = -1
     AND strftime('%H', datetime(sir_dsc_time, 'unixepoch')) BETWEEN '00' AND '04'
 )
-
