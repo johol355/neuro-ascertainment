@@ -1,9 +1,3 @@
--- MAJOR CHANGES:
--- DAOH90/180 are caulcated
--- Days alive and d7/30/90/365 are now counted from ICU admission (not PAR admission as previously) to be more cohorent w.r.t. DAOH measures
--- Add ICU admission details
-
-
 -- PAR_HADM is a redefined PAR table adding a unique HADM_ID to each admission
 -- Keep only admissions where the patient was >= 18 yrs at admission
 -- Keep only admissions after 2010/01/01
@@ -19,41 +13,45 @@ WITH PAR_HADM AS (
     WHERE 
         ALDER >= 18
         AND INDATUM >= 14610 -- This is 2010/01/01
-)
-,
+),
 
-PAR_HADM_W_ADM_FLAG AS (
+-- This CTE calculates days since last discharge date among all of the patients previous admissions (or actually: all admissions with an earlier admission date)
+PAR_HADM_LAST_DSC AS (
     SELECT
         *,
-        INDATUM - LAG(UTDATUM, 1) OVER (PARTITION BY LopNr ORDER BY INDATUM) AS DAYS_SINCE_LAST_ADMISSION
+        INDATUM - (MAX(UTDATUM) OVER (PARTITION BY LopNr ORDER BY INDATUM ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)) AS DAYS_SINCE_LAST_DSC
     FROM PAR_HADM
 ),
 
+-- This CTE flags new admissions and assigns identification numbers to coherent PAR_HADMs
 PAR_HADM_CONT AS (
     SELECT
         *,
         CASE
-            WHEN DAYS_SINCE_LAST_ADMISSION IS NULL OR DAYS_SINCE_LAST_ADMISSION > 1 THEN 1
+            WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1
             ELSE 0
         END AS ADMISSION_FLAG,
-        SUM(CASE WHEN DAYS_SINCE_LAST_ADMISSION IS NULL OR DAYS_SINCE_LAST_ADMISSION > 1 THEN 1 ELSE 0 END) 
-        OVER (PARTITION BY LopNr ROWS UNBOUNDED PRECEDING) AS SUM_FLAG,
-        SUM(CASE WHEN DAYS_SINCE_LAST_ADMISSION IS NULL OR DAYS_SINCE_LAST_ADMISSION > 1 THEN 1 ELSE 0 END) 
+        -- The following bit sums all "admission flags" and adds it do patient id * 1000 to create a unique hospital admission id
+        SUM(CASE WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1 ELSE 0 END) 
         OVER (PARTITION BY LopNr ROWS UNBOUNDED PRECEDING) + LopNr * 1000 AS CONT_HADM_ID
-    FROM PAR_HADM_W_ADM_FLAG
+    FROM PAR_HADM_LAST_DSC
 ),
 
+-- This CTE summarizes coherent PAR_HADMs and shows its constituents (individual PAR HADMs)
 PAR_HADM_CONT_DATES AS (
     SELECT
-        *,
+        LopNr,
+        CONT_HADM_ID,
         MIN(INDATUM) OVER (PARTITION BY CONT_HADM_ID) AS CONT_HADM_ADM_DATE,
-        MAX(UTDATUM) OVER (PARTITION BY CONT_HADM_ID) AS CONT_HADM_DSC_DATE
+        MAX(UTDATUM) OVER (PARTITION BY CONT_HADM_ID) AS CONT_HADM_DSC_DATE,
+        HADM_ID,
+        INDATUM,
+        UTDATUM
     FROM PAR_HADM_CONT
 ),
 
 -- T_ICU_ADMISSIONS has some basic information about all 
 -- ICU admissions to a tertiary ICU
-
 T_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
@@ -106,7 +104,7 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
         P.MVO,
         P.SJUKHUS
     FROM T_ICU_ADMISSIONS T
-    LEFT JOIN PAR_HADM_CONT_DATES P ON T.LopNr == P.LopNr
+    LEFT JOIN PAR_HADM P ON T.LopNr == P.LopNr
     WHERE P.INDATUM - T.InskrTidPunkt / 86400 IN (-14, -13, -12, -11, -10, -9, -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14)
     AND (
         (P.Sjukhus IN ('11001', '11003') AND T.AvdNamn IN ('S-CIVA', 'S-NIVA', 'KS/THIVA', 'KS ECMO', 'Astrid Lindgren'))
@@ -131,7 +129,7 @@ asah AS (
         P.LopNr,
         P.Alder
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     LEFT JOIN
         DORS D ON P.LopNr = D.LopNr
     WHERE
@@ -164,7 +162,7 @@ tbi AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND 
@@ -176,8 +174,7 @@ tbi AS (
              P.Diagnos LIKE "S071%" OR
              P.Diagnos LIKE "S04%" OR
              P.Diagnos LIKE "S12%") AND (P.Diagnos LIKE "%S06%")))
-)
-,
+),
 
 -- Cerebral venous thrombosis
 cvt AS (
@@ -185,7 +182,7 @@ cvt AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "G08%"
@@ -197,9 +194,7 @@ cvt AS (
         AND (P.Op NOT LIKE "%AAC00%")
         AND (P.Op NOT LIKE "%AAL00%")
         AND (P.Diagnos NOT LIKE "%I60%")
-
-)
-,
+),
 
 -- ICH
 ich AS (
@@ -207,7 +202,7 @@ ich AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "I61%")
@@ -222,7 +217,7 @@ avm AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "Q28%")
@@ -236,7 +231,7 @@ ais AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (P.Diagnos LIKE "I63%")
@@ -252,7 +247,7 @@ abm AS (
         P.HADM_ID,
         P.LopNr
         FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -270,7 +265,7 @@ ence AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -288,7 +283,7 @@ se AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -304,7 +299,7 @@ cfx AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -322,7 +317,7 @@ sdh AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -340,7 +335,7 @@ hc AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -357,7 +352,7 @@ tum AS (
         P.HADM_ID,
         P.LopNr
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
         AND (
@@ -396,7 +391,7 @@ DX AS (
             ELSE 'OTHER'
         END AS DX_GROUP
     FROM
-        PAR_HADM_CONT_DATES P
+        PAR_HADM P
     WHERE
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
 ),
@@ -420,9 +415,8 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
         D.DX_GROUP
     FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR T
     LEFT JOIN DX D ON T.HADM_ID = D.HADM_ID
-    LEFT JOIN PAR_HADM_CONT_DATES P ON T.HADM_ID = P.HADM_ID
-)
-,
+    LEFT JOIN PAR_HADM P ON T.HADM_ID = P.HADM_ID
+),
 
 -- T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY helps resolving tie situations
 -- where one SIR admission is associated with several PAR admissions.
@@ -449,8 +443,7 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
            ) AS DX_ORDER
    FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
    WHERE DX_GROUP != "OTHER"
-)
-,
+),
 
 -- T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME helps resolving tie situations
 -- where one SIR admission is associated with several PAR admissions.
@@ -478,8 +471,7 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
            ) AS DX_ORDER
     FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
     WHERE DX_GROUP != 'OTHER'
-)
-,
+),
 
 -- DESCRIPTIVE_SIR collects data from several SIR tables (including SAPS, SOFA) joined on SIR admission ID
 DESCRIPTIVE_SIR AS (
@@ -768,7 +760,8 @@ DESCRIPTIVE_SIR AS (
         CASE WHEN
             JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 365 THEN 1 ELSE 0 END AS d365,
  ---- Days alive from ICU  admission
-        JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) AS days_alive
+        JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) AS days_alive,
+        DO.DODSDAT AS death_date
     FROM SIR_BASDATA S
     LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr= SAPS.VtfId_LopNr
     LEFT JOIN (
@@ -783,14 +776,11 @@ DESCRIPTIVE_SIR AS (
     LEFT JOIN DORS DO ON S.LopNr = DO.LopNr
 ),
 
--- DESCRIPTIVE_SIR collects data from PAR and DORS (data on death date) on PAR_HADM_CONT_DATES id and in
+-- DESCRIPTIVE_SIR collects data from PAR and DORS (data on death date) on PAR_HADM id and in
 -- the case of death date data on patient ID + admission date in PAR.
 DESCRIPTIVE_PAR AS (
     SELECT
         P.HADM_ID,
-        P.CONT_HADM_ID,
-        P.CONT_HADM_ADM_DATE,
-        P.CONT_HADM_DSC_DATE,
         P.Alder AS age,
         CASE P.Sjukhus
                 WHEN '11001' THEN 'Karolinska universitetssjukhuset, Solna'
@@ -804,7 +794,7 @@ DESCRIPTIVE_PAR AS (
                 ELSE P.Sjukhus -- If none of the above cases match, keep the original value
         END AS par_tertiary_center,
         CASE WHEN P.Kon = '1' THEN 0 ELSE 1 END AS sex_female
-    FROM PAR_HADM_CONT_DATES P
+    FROM PAR_HADM P
 ),
 
 -- DAOH_STEP_1_90, DAOH_STEP_2_90, DAOH_STEP_3_90 and finally DAOH_90 calculates "Days Alive and Out of Hospital",
@@ -827,9 +817,14 @@ DAOH_90_STEP_1 AS (
         S.InskrTidPunkt / 86400 as S_INDATUM,
         -- Add end date for DAOH-90
         S.InskrTidPunkt / 86400 + 89 as S_INDATUM_90,
-        P.LopNr,
+        S.AvdNamn,
         P.INDATUM,
-        P.UTDATUM
+        P.UTDATUM,
+        P.HADM_ID,
+        P.Diagnos,
+        P.Op,
+        P.MVO,
+        P.Sjukhus
     FROM SIR_BASDATA S
     LEFT JOIN PAR_HADM P on S.LopNr = P.LopNr
     -- Keep only joined PAR admits with discharge on the same day or later as ICU admit
@@ -859,20 +854,61 @@ DAOH_90_STEP_2 AS (
     )
 ),
 
--- WITHIN VtfId_LopNr, merge dates for all groups of par admissions
+-- WITHIN VtfId_LopNr, merge dates for all groups of par admissions. Also HOSPITAL_LOS is calculated for the respective ADM_GROUP.
+-- To clean up cases where patients die before PAR discharge, DORS is joined and the MIN(discharge date, dod) is chosen,
+-- thus if a patient dies before their discharge their day of death will be chosen for the calculaton of hospital LOS.
 DAOH_90_STEP_3 AS (
     SELECT 
+        D.VtfId_LopNr,
+        D.LopNr,
+        D.InskrTidPunkt,
+        D.AvdNamn,
+        D.S_INDATUM,
+        D.S_INDATUM_90,
+        D.INDATUM,
+        D.UTDATUM,
+        D.HADM_ID,
+        D.UTDATUM - D.S_INDATUM + 1 as HOSPITAL_LOS,
+        MIN(
+            D.UTDATUM,
+            (julianday(SUBSTR(DO.DODSDAT, 1, 4) || '-' || 
+                  SUBSTR(DO.DODSDAT, 5, 2) || '-' || 
+                  SUBSTR(DO.DODSDAT, 7, 2)) - julianday('1970-01-01')))
+                  AS PROPER_UTDATUM,
+        (julianday(SUBSTR(DO.DODSDAT, 1, 4) || '-' || 
+                  SUBSTR(DO.DODSDAT, 5, 2) || '-' || 
+                  SUBSTR(DO.DODSDAT, 7, 2)) - julianday('1970-01-01')) AS dod,
+        MIN(
+            D.UTDATUM,
+            (julianday(SUBSTR(DO.DODSDAT, 1, 4) || '-' || 
+                  SUBSTR(DO.DODSDAT, 5, 2) || '-' || 
+                  SUBSTR(DO.DODSDAT, 7, 2)) - julianday('1970-01-01')))
+                  AS PROPER_UTDATUM,
+        (julianday(SUBSTR(DO.DODSDAT, 1, 4) || '-' || 
+                  SUBSTR(DO.DODSDAT, 5, 2) || '-' || 
+                  SUBSTR(DO.DODSDAT, 7, 2)) - julianday('1970-01-01')) - D.S_INDATUM + 1 AS HOSPITAL_LOS_ALIVE,
+        D.ADM_GROUP,
+        MAX(MIN(D.INDATUM), D.S_INDATUM) AS min_INDATUM,
+        MIN(MAX(D.UTDATUM), D.S_INDATUM_90) AS max_UTDATUM,     -- Cap max_UTDATUM at S_INDATUM_90
+        MIN(MAX(D.UTDATUM), D.S_INDATUM_90) - MAX(MIN(D.INDATUM), D.S_INDATUM) + 1 as ADMITTED_DAYS,
+        D.Diagnos,
+        D.Op,
+        D.MVO,
+        D.Sjukhus
+    FROM DAOH_90_STEP_2 D
+    LEFT JOIN DORS DO ON D.LopNr = DO.LopNr
+    GROUP BY VtfId_LopNr, ADM_GROUP
+),
+
+-- A CTE that gets the Hospital LOS for the relevant ADM GROUP above, i.e. the Hospital LOS from the ICU admission at hand
+H_LOS AS (
+    SELECT
         VtfId_LopNr,
         LopNr,
-        InskrTidPunkt,
-        S_INDATUM,
-        S_INDATUM_90,
-        ADM_GROUP,
-        MAX(MIN(INDATUM), S_INDATUM) AS min_INDATUM,
-        MIN(MAX(UTDATUM), S_INDATUM_90) AS max_UTDATUM,     -- Cap max_UTDATUM at S_INDATUM_90
-        MIN(MAX(UTDATUM), S_INDATUM_90) - MAX(MIN(INDATUM), S_INDATUM) + 1 as ADMITTED_DAYS
-    FROM DAOH_90_STEP_2
-    GROUP BY VtfId_LopNr, ADM_GROUP
+        HOSPITAL_LOS,
+        HOSPITAL_LOS_ALIVE
+    FROM DAOH_90_STEP_3
+    WHERE ADM_GROUP == 1  
 ),
 
 DAOH_90 AS (
@@ -904,7 +940,6 @@ DAOH_180_STEP_1 AS (
         S.InskrTidPunkt / 86400 as S_INDATUM,
         -- Add end date for DAOH-180
         S.InskrTidPunkt / 86400 + 179 as S_INDATUM_180,
-        P.LopNr,
         P.INDATUM,
         P.UTDATUM
     FROM SIR_BASDATA S
@@ -972,7 +1007,6 @@ DAOH_180 AS (
     GROUP BY VtfId_LopNr
 ),
 
-
 -- The SUMMARY_TABLE joins T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
 -- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
 -- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
@@ -981,7 +1015,6 @@ SELECT
     T.LopNr,
     D.VtfId_LopNr,
     P.HADM_ID,
-    P.CONT_HADM_ID,
     P.par_tertiary_center,
     T.INDATUM AS par_adm_date,
     T.UTDATUM AS par_dsc_date,
@@ -990,7 +1023,8 @@ SELECT
     T.DX_GROUP,
     T.DX_ORDER,
     D.*,
-    P.CONT_HADM_DSC_DATE - D.sir_adm_time/86400 as hospital_los_from_ICU_admit,
+    L.HOSPITAL_LOS,
+    L.HOSPITAL_LOS_ALIVE,
     DA90.DAOH_90,
     DA180.DAOH_180
 FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY T
@@ -998,6 +1032,7 @@ LEFT JOIN DESCRIPTIVE_PAR P ON T.HADM_ID = P.HADM_ID
 LEFT JOIN DESCRIPTIVE_SIR D ON T.VtfId_LopNr = D.VtfId_LopNr
 LEFT JOIN DAOH_180 DA180 ON T.VtfId_LopNr = DA180.VtfId_LopNr
 LEFT JOIN DAOH_90 DA90 ON T.VtfId_LopNr = DA90.VtfId_LopNr
+LEFT JOIN H_LOS L ON T.VtfId_LopNr = L.VtfId_LopNr
 WHERE DX_ORDER = 1
-GROUP BY LopNr HAVING MIN(sir_adm_time)
+GROUP BY T.LopNr HAVING MIN(sir_adm_time)
 )
