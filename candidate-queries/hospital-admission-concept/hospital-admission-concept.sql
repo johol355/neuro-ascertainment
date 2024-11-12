@@ -136,8 +136,8 @@ asah AS (
         P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
           AND (
             (
-                (P.Diagnos LIKE "I60%"
-                OR P.Diagnos LIKE "I671%"
+                (P.Diagnos LIKE "I60%" -- Note the placement of the wildcard, i.e. the regex will search for the main diagnosis
+                OR P.Diagnos LIKE "I671%" -- See comment above
                 OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is included: If you are sick enough to get admitted to an ICU, it is still a relevant dx
                 AND P.Diagnos NOT LIKE "%S06%")
 
@@ -1026,13 +1026,22 @@ SELECT
     L.HOSPITAL_LOS,
     L.HOSPITAL_LOS_ALIVE,
     DA90.DAOH_90,
-    DA180.DAOH_180
+    DA180.DAOH_180,
+    C.CONT_HADM_ID,
+    C.CONT_HADM_ADM_DATE,
+    C.CONT_HADM_DSC_DATE
 FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY T
 LEFT JOIN DESCRIPTIVE_PAR P ON T.HADM_ID = P.HADM_ID
 LEFT JOIN DESCRIPTIVE_SIR D ON T.VtfId_LopNr = D.VtfId_LopNr
 LEFT JOIN DAOH_180 DA180 ON T.VtfId_LopNr = DA180.VtfId_LopNr
 LEFT JOIN DAOH_90 DA90 ON T.VtfId_LopNr = DA90.VtfId_LopNr
 LEFT JOIN H_LOS L ON T.VtfId_LopNr = L.VtfId_LopNr
+LEFT JOIN PAR_HADM_CONT_DATES C ON C.HADM_ID = T.HADM_ID
 WHERE DX_ORDER = 1
-GROUP BY T.LopNr HAVING MIN(sir_adm_time)
+
+-- In order to get the 1st ICU admission to a tertiary centre the row below needs to be uncommented. 
+-- However, doing this results in only the first ICU-event showing up which in turn is often a shorter stay. This is
+-- because a patient often arrives in a general ICU and is subsequently transferred to a NSICU.
+
+-- GROUP BY T.LopNr HAVING MIN(sir_adm_time)
 )
