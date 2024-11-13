@@ -1039,6 +1039,12 @@ DAOH_180 AS (
     GROUP BY VtfId_LopNr
 ),
 
+---------------------------------------------------------
+---------------------------------------------------------
+--------- SUMMARY TABLES --------------------------------
+---------------------------------------------------------
+---------------------------------------------------------
+
 -- The SUMMARY_TABLE joins T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
 -- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
 -- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
