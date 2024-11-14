@@ -1045,6 +1045,29 @@ DAOH_180 AS (
 ---------------------------------------------------------
 ---------------------------------------------------------
 
+-- CONT_ICU_SUMMARY is an ICU-summary where data has been grouped for continuous icu-admissions
+
+CONT_ICU_SUMMARY AS (
+SELECT 
+    MIN(T.LopNr) AS LopNr,
+    T.CONT_ICU_ID,
+    MIN(D.sir_adm_time) AS sir_adm_time,
+    MAX(D.sir_dsc_time) AS sir_dsc_time,
+    MIN(C.CONT_HADM_ID) AS cont_hadm_id,
+    MIN(C.CONT_HADM_ADM_DATE) AS cont_hadm_adm_date,
+    MAX(C.CONT_HADM_DSC_DATE) AS cont_hadm_dsc_date,
+    MIN(P.sex_female) AS sex_female,
+    MIN(P.age) AS age,
+    MIN(T.DX_GROUP) AS dx
+FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY T
+LEFT JOIN DESCRIPTIVE_PAR P ON T.HADM_ID = P.HADM_ID
+LEFT JOIN DESCRIPTIVE_SIR D ON T.VtfId_LopNr = D.VtfId_LopNr
+LEFT JOIN H_LOS L ON T.VtfId_LopNr = L.VtfId_LopNr
+LEFT JOIN PAR_HADM_CONT_DATES C ON C.HADM_ID = T.HADM_ID
+WHERE DX_ORDER = 1
+GROUP BY CONT_ICU_ID
+),
+
 -- The SUMMARY_TABLE joins T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
 -- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
 -- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
