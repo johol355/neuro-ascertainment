@@ -1,13 +1,13 @@
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
----------------------- SQL CTE's for use -------------------------------------
+---------------------- EpiNIC-project SQL CTE's ------------------------------
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 -- Preamble:
---
---
---
---
+-- This .sql-document contains queries for constructing common table expressions
+-- central to the EpiNIC-project. When building a final query, this should be
+-- the first code to be run and can be extended with additional queries in 
+-- various other scripts (see README).
 ------------------------------------------------------------------------------
 -- Table of contents:
 -- 1. Hospital admission ID and creation of coherent hospital admissions
