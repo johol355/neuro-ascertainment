@@ -40,6 +40,8 @@
 --    - T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
 --    - T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY
 --    - T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME
+-- 5. Keys
+--    - T_ID_KEYS
 ------------------------------------------------------------------------------
 
 
@@ -646,6 +648,22 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
            ) AS DX_ORDER
     FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
     WHERE DX_GROUP != 'OTHER'
-)
+),
 
-------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+-- CTE T_ID_KEYS:
+-- Is a CTE containing the linking keys LopNr, VtfId_LopNr, HADM_ID, CONT_ICU_ID
+--------------------------------------------------------------------------------
+T_ID_KEYS AS(
+  SELECT
+    T.LopNr,
+    T.HADM_ID,
+    H.CONT_HADM_ID,
+    T.CONT_ICU_ID,
+    T.VtfId_LopNr,
+    T.DX_ORDER
+  FROM 
+    T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME T
+  LEFT JOIN PAR_HADM_CONT H ON T.HADM_ID = H.HADM_ID
+  WHERE DX_ORDER = 1
+)

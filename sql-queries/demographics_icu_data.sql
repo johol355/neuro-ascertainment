@@ -1,4 +1,8 @@
--- DESCRIPTIVE_SIR collects data from several SIR tables (including SAPS, SOFA) joined on SIR admission ID
+--------------------------------------------------------------------------------
+-- DESCRIPTIVE_SIR collects data from several SIR tables (including SAPS, SOFA) 
+-- joined on SIR admission ID
+--------------------------------------------------------------------------------
+
 DESCRIPTIVE_SIR AS (
    SELECT
     -----------------------------------------
@@ -301,8 +305,11 @@ DESCRIPTIVE_SIR AS (
     LEFT JOIN DORS DO ON S.LopNr = DO.LopNr
 ),
 
+--------------------------------------------------------------------------------
 -- DESCRIPTIVE_PAR collects data from PAR and DORS (data on death date) on PAR_HADM id and in
 -- the case of death date data on patient ID + admission date in PAR.
+--------------------------------------------------------------------------------
+
 DESCRIPTIVE_PAR AS (
     SELECT
         P.HADM_ID,
@@ -320,4 +327,80 @@ DESCRIPTIVE_PAR AS (
         END AS par_tertiary_center,
         CASE WHEN P.Kon = '1' THEN 0 ELSE 1 END AS sex_female
     FROM PAR_HADM P
+),
+
+--------------------------------------------------------------------------------
+-- CONT_DESCRIPTIVE_SIR condenses DESCRIPTIVE_SIR for administrative 
+-- ICU-admissions to "real" continuous admissions
+--------------------------------------------------------------------------------
+
+
+-------------
+
+
+--DEBUG: T VS ALL!!!
+
+
+
+----------
+-- For "first" occurences create a CTE with row-nubers ordered by adm-time
+CONT_DESCRIPTIVE_SIR_RN AS(
+  SELECT 
+    T.CONT_ICU_ID,
+    S.VtfId_LopNr,
+    S.sir_adm_time,
+    ROW_NUMBER() OVER (PARTITION BY CONT_ICU_ID ORDER BY sir_adm_time) AS rn
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  WHERE CONT_ICU_ID IS NOT NULL
+),
+
+-- Use the CTE created to index first occurrence
+CONT_DESCRIPTIVE_SIR_FIRST AS(
+  SELECT 
+    T.CONT_ICU_ID,
+    S.sir_adm_time,
+    S.admission_height,
+    S.admission_weight,
+    S.BMI,
+    S.sir_consciousness_level,
+    S.SAPS_AMV,
+    S.SAPS_PFI,
+    S.SAPS_hypoxia,
+    S.SAPS_PAO2,
+    S.ARDS AS SAPS_ARDS,
+    S.SAPS_min_SBP,
+    S.SAPS_max_HR,
+    S.SAPS_tachycardia,
+    S.SAPS_bradycardia,
+    S.SAPS_hypotension,
+    S.SAPS_hypertension,
+    S.SAPS_total_score,
+    S.SAPS_min_pH,
+    S.SAPS_max_temp,
+    S.SAPS_acidosis,
+    S.SAPS_hypothermia,
+    RN.rn
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  LEFT JOIN CONT_DESCRIPTIVE_SIR_RN RN ON S.VtfId_LopNr = RN.VtfId_LopNr
+  WHERE RN.rn = 1
+),
+
+-- Add on last occurrence for time variable
+CONT_DESCRIPTIVE_SIR_LAST AS(
+  SELECT
+    T.CONT_ICU_ID,
+    MAX(S.sir_dsc_time) AS sir_dsc_time
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  WHERE CONT_ICU_ID IS NOT NULL
+  GROUP BY CONT_ICU_ID
+),
+
+-- Join the sheets to a single CTE for condensed continuous ICU-admissions
+CONT_DESCRIPTIVE_SIR AS(
+  SELECT F.*, L.sir_dsc_time
+  FROM CONT_DESCRIPTIVE_SIR_FIRST F
+  LEFT JOIN CONT_DESCRIPTIVE_SIR_LAST L ON F.CONT_ICU_ID = L.CONT_ICU_ID
 )
