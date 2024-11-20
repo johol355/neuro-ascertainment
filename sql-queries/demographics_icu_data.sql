@@ -334,15 +334,6 @@ DESCRIPTIVE_PAR AS (
 -- ICU-admissions to "real" continuous admissions
 --------------------------------------------------------------------------------
 
-
--------------
-
-
---DEBUG: T VS ALL!!!
-
-
-
-----------
 -- For "first" occurences create a CTE with row-nubers ordered by adm-time
 CONT_DESCRIPTIVE_SIR_RN AS(
   SELECT 
@@ -391,7 +382,8 @@ CONT_DESCRIPTIVE_SIR_FIRST AS(
 CONT_DESCRIPTIVE_SIR_LAST AS(
   SELECT
     T.CONT_ICU_ID,
-    MAX(S.sir_dsc_time) AS sir_dsc_time
+    MAX(S.sir_dsc_time) AS sir_dsc_time,
+    MAX(S.death_date) AS death_date
   FROM DESCRIPTIVE_SIR S
   LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
   WHERE CONT_ICU_ID IS NOT NULL
@@ -400,7 +392,7 @@ CONT_DESCRIPTIVE_SIR_LAST AS(
 
 -- Join the sheets to a single CTE for condensed continuous ICU-admissions
 CONT_DESCRIPTIVE_SIR AS(
-  SELECT F.*, L.sir_dsc_time
+  SELECT F.*, L.sir_dsc_time, L.death_date
   FROM CONT_DESCRIPTIVE_SIR_FIRST F
   LEFT JOIN CONT_DESCRIPTIVE_SIR_LAST L ON F.CONT_ICU_ID = L.CONT_ICU_ID
 )
