@@ -1,2 +1,4 @@
 /data/
 /analysis/
+*.Rmd
+*.Rhistory
