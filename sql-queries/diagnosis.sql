@@ -27,6 +27,9 @@
 --    - ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME
 --    - T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
 --    - T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME
+-- 5. Resulting CTE's for use
+--    - ICU_ADM_DX
+--    - TERT_ICU_ADM_DX
 ------------------------------------------------------------------------------
 
 
@@ -643,15 +646,7 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
                PARTITION BY CONT_ICU_ID 
                ORDER BY
                   CASE 
-                    WHEN SjukhusTyp LIKE 'Regionsj%' THEN 1
-                    WHEN SjukhusTyp LIKE 'Länssj%' THEN 2
-                    WHEN SjukhusTyp LIKE 'Länsdels%' THEN 3 
-                    ELSE 4 -- for any other value not specified (although none exist on manual verification)
-                  END,
-                  CASE 
-                    WHEN SJUKHUS IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002') THEN 0 
-                    ELSE 1 
-                  END,
+                    WHEN SjukhusTyp LIKE 'Regions%' THEN 0 ELSE 1 END,
                   CASE DX_GROUP
                     WHEN 'TBI' THEN 1
                     WHEN 'ASAH' THEN 2
@@ -691,5 +686,11 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
                         INDATUM
            ) AS DX_ORDER
     FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
-)
-)
+),
+
+-- Add additional identical CTE's with more appealing (and shorter) names.
+-- The old CTE's are kept to retain backwards compatibility
+
+ICU_ADM_DX AS(SELECT * FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME),
+
+TERT_ICU_ADM_DX AS(SELECT * FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME)

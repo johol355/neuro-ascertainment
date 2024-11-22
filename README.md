@@ -1,5 +1,21 @@
 # Case Ascertainment
 
+## Tables which are suitable for user-end extraction
+
+1.  ICU_ADM_CONT: CTE for verifying LopNr-CONT_ICU_ID-VtfId_LopNr indexing
+
+2.  ICU_ADM_DX: Diagnosis information for continuous ICU-admission
+
+3.  TERT_ICU_ADM_DX: Diagnosis information only for continuous tertiary ICU-admissions
+
+4.  DESCRIPTIVE_SIR: Demographic and physiological variables in all of SIR
+
+5.  CONT_DESCRIPTIVE_SIR: Demographic and physiological variables in SIR aggregated on CONT_ICU_ID (i.e. continuous ICU-admission - both in primary and tertiary centres)
+
+6.  T_CONT_DESCRIPTIVE_SIR: As above but only for continuous admissions to tertiary centres
+
+7.  etc. for beta-testing (see SQL-query scripts).
+
 ## User instructions for querying database
 
 **R**
@@ -80,6 +96,10 @@ DBI::dbGetQuery(DBI::dbConnect(RSQLite::SQLite(), ".../db.sqlite", extended_type
 Ask Johan :)
 
 ## Dev-notes
+
+**Version 0.4.2 (2024/11/22)** Update *demographics_icu_data.sql* which now works.
+
+**Version 0.4.2 (2024/11/22)** Remove länssjukhus from diagnosis hierarchy.
 
 **Version 0.4.1 (2024/11/22)** Version 0.4 retains the split of queries previously contained in a single large document into separate files. Note: The other CTE's aside from *general_cte.sql* and *diagnosis.sql* have not been updated yet.
 
