@@ -1,4 +1,4 @@
 /data/
 /analysis/
-*.Rmd
-*.Rhistory
+/sql-queries/*.Rmd
+/sql-queries/*.Rhistory
