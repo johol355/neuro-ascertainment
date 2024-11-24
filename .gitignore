@@ -2,3 +2,5 @@
 /analysis/
 /sql-queries/*.Rmd
 /sql-queries/*.Rhistory
+/sql-queries/test.ipynb
+/sql-queries/__pycache__/
