@@ -244,7 +244,7 @@ T_ICU_ADM_CONT_DATES AS(
       LopNr,
       InskrTidPunkt,
       UtskrTidPunkt,
-      CONT_ICU_ID,
+      T_CONT_ICU_ID,
       MIN(InskrTidPunkt) OVER (PARTITION BY T_CONT_ICU_ID) AS T_CONT_ICU_ADM_DATE,
       MAX(UtskrTidPunkt) OVER (PARTITION BY T_CONT_ICU_ID) AS T_CONT_ICU_DSC_DATE
     FROM T_ICU_ADM_CONT

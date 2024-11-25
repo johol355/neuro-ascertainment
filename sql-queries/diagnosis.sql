@@ -646,7 +646,7 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
                PARTITION BY CONT_ICU_ID 
                ORDER BY
                   CASE 
-                    WHEN SjukhusTyp LIKE 'Regions%' THEN 0 ELSE 1 END,
+                    WHEN SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002) THEN 0 ELSE 1 END,
                   CASE DX_GROUP
                     WHEN 'TBI' THEN 1
                     WHEN 'ASAH' THEN 2

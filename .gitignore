@@ -2,4 +2,5 @@
 /analysis/
 /sql-queries/*.Rmd
 /sql-queries/*.Rhistory
-*.DS_Store
+/sql-queries/test.ipynb
+/sql-queries/__pycache__/
