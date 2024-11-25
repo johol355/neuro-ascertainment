@@ -2,3 +2,4 @@
 /analysis/
 /sql-queries/*.Rmd
 /sql-queries/*.Rhistory
+*.DS_Store
