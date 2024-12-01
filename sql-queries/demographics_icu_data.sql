@@ -6,7 +6,7 @@
 DESCRIPTIVE_SIR AS (
    SELECT
     -----------------------------------------
-    ------------- DEMOGRAHPICS --------------
+    ------------- DEMOGRAPHICS --------------
     -----------------------------------------
         S.VtfId_LopNr,
         S.AvdNamn AS sir_icu_name,
@@ -18,10 +18,12 @@ DESCRIPTIVE_SIR AS (
         S.InskrTidPunkt AS sir_adm_time,
         S.UtskrTidPunkt AS sir_dsc_time,
         S.VardTidMinuter AS sir_total_time,
+        
     --- Height, weight, BMI ---
         S.Lengd AS admission_height,
         S.AnkIvaVikt AS admission_weight,
         S.AnkIvaVikt / (S.Lengd * S.Lengd) AS BMI,
+        
     --- DNR orders (in the SIR_BEGRANSNINGAR VtfId_LopNr are only present if there is a DNR order) --- 
         CASE WHEN S.VtfId_LopNr IN (SELECT VtfId_LopNr FROM SIR_BEGRANSNINGAR) THEN 1 ELSE 0 END AS DNR,
 
@@ -274,23 +276,8 @@ DESCRIPTIVE_SIR AS (
         CASE
             WHEN SAPS.SAPS3_KroppstempMax < 35 THEN 1 
             WHEN SAPS.SAPS3_KroppstempMax IS NULL THEN NULL
-            ELSE 0 END AS SAPS_hypothermia,
-
-        --- Outcomes ---
-    -- Crude 7d, 30d, 90d, 365d mortality from ICU admission
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 7 THEN 1 ELSE 0 END AS d7,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 30 THEN 1 ELSE 0 END AS d30,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 90 THEN 1 ELSE 0 END AS d90,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 180 THEN 1 ELSE 0 END AS d180,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 365 THEN 1 ELSE 0 END AS d365,
- ---- Days alive from ICU  admission
-        JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) AS days_alive,
-        DO.DODSDAT AS death_date
+            ELSE 0 END AS SAPS_hypothermia
+            
     FROM SIR_BASDATA S
     LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr= SAPS.VtfId_LopNr
     LEFT JOIN (
@@ -334,25 +321,29 @@ DESCRIPTIVE_PAR AS (
 -- ICU-admissions to "real" continuous admissions
 --------------------------------------------------------------------------------
 
-
--------------
-
-
---DEBUG: T VS ALL!!!
-
-
-
-----------
--- For "first" occurences create a CTE with row-nubers ordered by adm-time
+-- For "first" and "last" occurences create a CTE with row-nubers ordered by adm-time
 CONT_DESCRIPTIVE_SIR_RN AS(
   SELECT 
     T.CONT_ICU_ID,
     S.VtfId_LopNr,
     S.sir_adm_time,
-    ROW_NUMBER() OVER (PARTITION BY CONT_ICU_ID ORDER BY sir_adm_time) AS rn
+    ROW_NUMBER() OVER (PARTITION BY T.CONT_ICU_ID ORDER BY S.sir_adm_time) AS rn,
+    ROW_NUMBER() OVER (PARTITION BY T.CONT_ICU_ID ORDER BY S.sir_adm_time DESC) AS last_rn
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  WHERE T.CONT_ICU_ID IS NOT NULL
+),
+
+T_CONT_DESCRIPTIVE_SIR_RN AS(
+  SELECT 
+    T.T_CONT_ICU_ID,
+    S.VtfId_LopNr,
+    S.sir_adm_time,
+    ROW_NUMBER() OVER (PARTITION BY T.T_CONT_ICU_ID ORDER BY S.sir_adm_time) AS rn,
+    ROW_NUMBER() OVER (PARTITION BY T.T_CONT_ICU_ID ORDER BY S.sir_adm_time DESC) AS last_rn
   FROM DESCRIPTIVE_SIR S
   LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
-  WHERE CONT_ICU_ID IS NOT NULL
+  WHERE T.T_CONT_ICU_ID IS NOT NULL
 ),
 
 -- Use the CTE created to index first occurrence
@@ -363,7 +354,7 @@ CONT_DESCRIPTIVE_SIR_FIRST AS(
     S.admission_height,
     S.admission_weight,
     S.BMI,
-    S.sir_consciousness_level,
+    S.sir_consciousness_level AS SAPS_consciousness_level, -- I.e. SAPS-based
     S.SAPS_AMV,
     S.SAPS_PFI,
     S.SAPS_hypoxia,
@@ -371,7 +362,7 @@ CONT_DESCRIPTIVE_SIR_FIRST AS(
     S.ARDS AS SAPS_ARDS,
     S.SAPS_min_SBP,
     S.SAPS_max_HR,
-    S.SAPS_tachycardia,
+    S.SAPS_tachycardia, -- Defined as HR > 110
     S.SAPS_bradycardia,
     S.SAPS_hypotension,
     S.SAPS_hypertension,
@@ -380,27 +371,139 @@ CONT_DESCRIPTIVE_SIR_FIRST AS(
     S.SAPS_max_temp,
     S.SAPS_acidosis,
     S.SAPS_hypothermia,
-    RN.rn
+    S.icu_admit_daytime,
+    S.icu_admit_nighttime,
+    S.icu_admit_afterhours
   FROM DESCRIPTIVE_SIR S
-  LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  LEFT JOIN ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
   LEFT JOIN CONT_DESCRIPTIVE_SIR_RN RN ON S.VtfId_LopNr = RN.VtfId_LopNr
   WHERE RN.rn = 1
 ),
 
--- Add on last occurrence for time variable
+T_CONT_DESCRIPTIVE_SIR_FIRST AS(
+  SELECT 
+    T.T_CONT_ICU_ID,
+    S.sir_adm_time,
+    S.admission_height,
+    S.admission_weight,
+    S.BMI,
+    S.sir_consciousness_level AS SAPS_consciousness_level, -- I.e. SAPS-based
+    S.SAPS_AMV,
+    S.SAPS_PFI,
+    S.SAPS_hypoxia,
+    S.SAPS_PAO2,
+    S.ARDS AS SAPS_ARDS,
+    S.SAPS_min_SBP,
+    S.SAPS_max_HR,
+    S.SAPS_tachycardia, -- Defined as HR > 110
+    S.SAPS_bradycardia,
+    S.SAPS_hypotension,
+    S.SAPS_hypertension,
+    S.SAPS_total_score,
+    S.SAPS_min_pH,
+    S.SAPS_max_temp,
+    S.SAPS_acidosis,
+    S.SAPS_hypothermia,
+    S.icu_admit_daytime,
+    S.icu_admit_nighttime,
+    S.icu_admit_afterhours
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  LEFT JOIN T_CONT_DESCRIPTIVE_SIR_RN RN ON S.VtfId_LopNr = RN.VtfId_LopNr
+  WHERE RN.rn = 1
+),
+
+-- Add on last occurrence
+
 CONT_DESCRIPTIVE_SIR_LAST AS(
   SELECT
     T.CONT_ICU_ID,
-    MAX(S.sir_dsc_time) AS sir_dsc_time
+    S.icu_discharge_daytime,
+    S.icu_discharge_nighttime,
+    S.icu_discharge_afterhours
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  LEFT JOIN CONT_DESCRIPTIVE_SIR_RN RN ON S.VtfId_LopNr = RN.VtfId_LopNr
+  WHERE RN.last_rn = 1
+),
+
+T_CONT_DESCRIPTIVE_SIR_LAST AS(
+  SELECT
+    T.T_CONT_ICU_ID,
+    S.icu_discharge_daytime,
+    S.icu_discharge_nighttime,
+    S.icu_discharge_afterhours
   FROM DESCRIPTIVE_SIR S
   LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
-  WHERE CONT_ICU_ID IS NOT NULL
-  GROUP BY CONT_ICU_ID
+  LEFT JOIN T_CONT_DESCRIPTIVE_SIR_RN RN ON S.VtfId_LopNr = RN.VtfId_LopNr
+  WHERE RN.last_rn = 1
+),
+
+-- Add on MAX occurrence for time variable
+
+CONT_DESCRIPTIVE_SIR_MAX_MIN AS(
+  SELECT
+    T.CONT_ICU_ID,
+    MAX(S.sir_dsc_time) AS sir_dsc_time,
+    MAX(S.respiratory_instability_markers) AS respiratory_instability_markers,
+    MAX(S.hemodynamic_instability_markers) AS hemodynamic_instability_markers,
+    MIN(S.overall_worst_RLS85) AS overall_worst_RLS85,
+    MIN(S.overall_worst_GCS) AS overall_worst_GCS,
+    MIN(S.overall_worst_GCSm) AS overall_worst_GCSm,
+    MIN(S.SOFA_worst_RLS85) AS SOFA_worst_RLS85,
+    MIN(S.SOFA_worst_GCS) AS SOFA_worst_GCS,
+    MIN(S.SOFA_worst_GCSm) AS SOFA_worst_GCSm,
+    MAX(S.any_AMV) AS any_AMV,
+    MAX(S.KVA_IMV) AS KVA_IMV,
+    MAX(S.KVA_NIV) AS KVA_NIV,
+    MAX(S.SOFA_high_norepi_dose) AS SOFA_high_norepi_dose,
+    MAX(S.ARDS) AS ARDS,
+    MAX(S.overall_obtunded) AS overall_obtunded,
+    MAX(S.overall_unconcious) AS overall_unconcious,
+    MAX(S.DNR) AS DNR
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  WHERE T.CONT_ICU_ID IS NOT NULL
+  GROUP BY T.CONT_ICU_ID
+),
+
+T_CONT_DESCRIPTIVE_SIR_MAX_MIN AS(
+  SELECT
+    T.T_CONT_ICU_ID,
+    MAX(S.sir_dsc_time) AS sir_dsc_time,
+    MAX(S.respiratory_instability_markers) AS respiratory_instability_markers,
+    MAX(S.hemodynamic_instability_markers) AS hemodynamic_instability_markers,
+    MIN(S.overall_worst_RLS85) AS overall_worst_RLS85,
+    MIN(S.overall_worst_GCS) AS overall_worst_GCS,
+    MIN(S.overall_worst_GCSm) AS overall_worst_GCSm,
+    MIN(S.SOFA_worst_RLS85) AS SOFA_worst_RLS85,
+    MIN(S.SOFA_worst_GCS) AS SOFA_worst_GCS,
+    MIN(S.SOFA_worst_GCSm) AS SOFA_worst_GCSm,
+    MAX(S.any_AMV) AS any_AMV,
+    MAX(S.KVA_IMV) AS KVA_IMV,
+    MAX(S.KVA_NIV) AS KVA_NIV,
+    MAX(S.SOFA_high_norepi_dose) AS SOFA_high_norepi_dose,
+    MAX(S.ARDS) AS ARDS,
+    MAX(S.overall_obtunded) AS overall_obtunded,
+    MAX(S.overall_unconcious) AS overall_unconcious,
+    MAX(S.DNR) AS DNR
+  FROM DESCRIPTIVE_SIR S
+  LEFT JOIN T_ICU_ADM_CONT T ON S.VtfId_LopNr = T.VtfId_LopNr
+  WHERE T.T_CONT_ICU_ID IS NOT NULL
+  GROUP BY T.T_CONT_ICU_ID
 ),
 
 -- Join the sheets to a single CTE for condensed continuous ICU-admissions
 CONT_DESCRIPTIVE_SIR AS(
-  SELECT F.*, L.sir_dsc_time
+  SELECT *
   FROM CONT_DESCRIPTIVE_SIR_FIRST F
   LEFT JOIN CONT_DESCRIPTIVE_SIR_LAST L ON F.CONT_ICU_ID = L.CONT_ICU_ID
+  LEFT JOIN CONT_DESCRIPTIVE_SIR_MAX_MIN MM ON F.CONT_ICU_ID = MM.CONT_ICU_ID
+),
+
+T_CONT_DESCRIPTIVE_SIR AS(
+  SELECT *
+  FROM T_CONT_DESCRIPTIVE_SIR_FIRST F
+  LEFT JOIN T_CONT_DESCRIPTIVE_SIR_LAST L ON F.T_CONT_ICU_ID = L.T_CONT_ICU_ID
+  LEFT JOIN T_CONT_DESCRIPTIVE_SIR_MAX_MIN MM ON F.T_CONT_ICU_ID = MM.T_CONT_ICU_ID
 )
