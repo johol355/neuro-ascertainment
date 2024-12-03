@@ -97,6 +97,16 @@ Ask Johan :)
 
 ## Dev-notes
 
+**Version 0.4.3 (2024/12/03)** Added file *outcomes.sql* which contains the CTE PROCESSED_DORS in which the dates of death have been processed into the following columns:
+
+-    DODSDAT_CLEAN: contains strings with the raw dates without trailing zeroes (i.e. can have partial dates such as 2018 and 201706)
+
+-    DODSDAT_DATE: contains all correct and full dates with the rest removed
+
+-    DODSDAT_ROUND_UP/ROUND_DOWN/ROUND_MID: contains all dates with partial dates having been rounded down (1st of observation period), up (last of observation period), or mid (July 1st for YYYY and 15th of the month for YYYYMM)
+
+-    ERROR_DATE: contains a flag for cases with incorrectly formatted dates (1 = incorrect, 0 = correct). Use this to avoid classifying DODSDAT_DATE = NA as alive if the NA is just a result of the date being incorrectly formatted rather than being non-existent. 
+
 **Version 0.4.2 (2024/11/22)** Update *demographics_icu_data.sql* which now works.
 
 **Version 0.4.2 (2024/11/22)** Remove länssjukhus from diagnosis hierarchy.
