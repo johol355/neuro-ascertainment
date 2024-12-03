@@ -29,7 +29,7 @@ PROCESSED_DORS AS(
       WHEN SUBSTR(D.DODSDAT, -4, 2) = '00'
       THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-01-01')
       WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00'
-      THEN DATE(SUBSTR(D.DODSDAT, 1, 6) || '-01')
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-01')
       ELSE DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
     END AS DODSDAT_ROUND_DOWN,
     
@@ -37,10 +37,20 @@ PROCESSED_DORS AS(
     CASE 
       WHEN SUBSTR(D.DODSDAT, -4, 4) = '0000'
       THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-12-31')
-      WHEN SUBSTR(D.DODSDAT, -2) = '00'
-      THEN DATE(SUBSTR(D.DODSDAT, 1, 6) || '01', 'start of month', '+1 month', '-1 day')
+      WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-01', 'start of month', '+1 month', '-1 day')
       ELSE DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
     END AS DODSDAT_ROUND_UP,
+    
+        -- Keep all dates but for incorrect dates, round to july 1st for dates with 
+        -- YYYY0000 and to the 15th of the month for dates with YYYYMM00
+    CASE 
+      WHEN SUBSTR(D.DODSDAT, -4, 2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-07-01')
+      WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-15')
+      ELSE DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
+    END AS DODSDAT_ROUND_MID,
     
     -- Add a flag for date with an error in formatting
     CASE WHEN SUBSTR(D.DODSDAT, -2) = '00' THEN 1 ELSE 0 END AS ERROR_DATE
