@@ -14,7 +14,13 @@
 
 6.  T_CONT_DESCRIPTIVE_SIR: As above but only for continuous admissions to tertiary centres
 
-7.  etc. for beta-testing (see SQL-query scripts).
+7.  H_LOS: Hospital Length of Stay for all continuous admissions grouped by CONT_HADM_ID
+
+8.  I_LOS: ICU Length of Stay for all continuous ICU admissions grouped by CONT_ICU_ID
+
+9.  TI_LOS: ICU Length of Stay for all continuous tertiary ICU admissions grouped by T_CONT_ICU_ID
+
+10. etc. for beta-testing (see SQL-query scripts).
 
 ## User instructions for querying database
 
@@ -99,13 +105,13 @@ Ask Johan :)
 
 **Version 0.4.3 (2024/12/03)** Added file *outcomes.sql* which contains the CTE PROCESSED_DORS in which the dates of death have been processed into the following columns:
 
--    DODSDAT_CLEAN: contains strings with the raw dates without trailing zeroes (i.e. can have partial dates such as 2018 and 201706)
+-   DODSDAT_CLEAN: contains strings with the raw dates without trailing zeroes (i.e. can have partial dates such as 2018 and 201706)
 
--    DODSDAT_DATE: contains all correct and full dates with the rest removed
+-   DODSDAT_DATE: contains all correct and full dates with the rest removed
 
--    DODSDAT_ROUND_UP/ROUND_DOWN/ROUND_MID: contains all dates with partial dates having been rounded down (1st of observation period), up (last of observation period), or mid (July 1st for YYYY and 15th of the month for YYYYMM)
+-   DODSDAT_ROUND_UP/ROUND_DOWN/ROUND_MID: contains all dates with partial dates having been rounded down (1st of observation period), up (last of observation period), or mid (July 1st for YYYY and 15th of the month for YYYYMM)
 
--    ERROR_DATE: contains a flag for cases with incorrectly formatted dates (1 = incorrect, 0 = correct). Use this to avoid classifying DODSDAT_DATE = NA as alive if the NA is just a result of the date being incorrectly formatted rather than being non-existent. 
+-   ERROR_DATE: contains a flag for cases with incorrectly formatted dates (1 = incorrect, 0 = correct). Use this to avoid classifying DODSDAT_DATE = NA as alive if the NA is just a result of the date being incorrectly formatted rather than being non-existent.
 
 **Version 0.4.2 (2024/11/22)** Update *demographics_icu_data.sql* which now works.
 
