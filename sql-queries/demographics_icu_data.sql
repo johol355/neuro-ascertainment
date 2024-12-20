@@ -15,7 +15,7 @@ DESCRIPTIVE_SIR AS (
             WHEN 'Länsdelssjukhu' THEN 'Community Hospital'
             WHEN 'Regionsjukhus' THEN 'University Hospital'
           END AS sir_hospital_type,
-        S.InskrTidPunkt AS sir_adm_time,
+        S.InskrTidpunkt AS sir_adm_time,
         S.UtskrTidPunkt AS sir_dsc_time,
         S.VardTidMinuter AS sir_total_time,
         
@@ -43,14 +43,14 @@ DESCRIPTIVE_SIR AS (
 
     --- After hours admit ---
         CASE
-            WHEN strftime('%H', datetime(S.InskrTidPunkt, 'unixepoch')) IN ("8","9","10","11","12","13","14","15","16") THEN 1 ELSE 0 END AS icu_admit_daytime,
+            WHEN strftime('%H', datetime(S.InskrTidpunkt, 'unixepoch')) IN ("8","9","10","11","12","13","14","15","16") THEN 1 ELSE 0 END AS icu_admit_daytime,
         CASE
-            WHEN strftime('%H', datetime(S.InskrTidPunkt, 'unixepoch')) IN ("22","23","00","01","02","03","04","05","06") THEN 1 ELSE 0 END AS icu_admit_nighttime,
+            WHEN strftime('%H', datetime(S.InskrTidpunkt, 'unixepoch')) IN ("22","23","00","01","02","03","04","05","06") THEN 1 ELSE 0 END AS icu_admit_nighttime,
         CASE
             WHEN (
-                strftime('%H', datetime(S.InskrTidPunkt, 'unixepoch')) NOT IN ("8","9","10","11","12","13","14","15","16")
+                strftime('%H', datetime(S.InskrTidpunkt, 'unixepoch')) NOT IN ("8","9","10","11","12","13","14","15","16")
                 OR 
-                strftime('%w', datetime(S.InskrTidPunkt, 'unixepoch')) IN ("0","6")
+                strftime('%w', datetime(S.InskrTidpunkt, 'unixepoch')) IN ("0","6")
             )
             THEN 1 ELSE 0 END AS icu_admit_afterhours
         ,

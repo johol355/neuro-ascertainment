@@ -114,11 +114,11 @@ ICU_ADM_LAST_DSC AS (
     SELECT 
         VtfId_LopNr,
         LopNr,
-        InskrTidPunkt,
-        UtskrTidPunkt,
+        InskrTidpunkt,
+        UtskrTidpunkt,
         AvdNamn,
         Sjukhus,
-        InskrTidPunkt - (MAX(UtskrTidPunkt) OVER (PARTITION BY LopNr ORDER BY InskrTidPunkt ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)) AS SECS_SINCE_LAST_ICU_DSC
+        InskrTidpunkt - (MAX(UtskrTidpunkt) OVER (PARTITION BY LopNr ORDER BY InskrTidpunkt ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)) AS SECS_SINCE_LAST_ICU_DSC
     FROM SIR_BASDATA
 ),
 
@@ -133,8 +133,8 @@ ICU_ADM_CONT AS (
     SELECT
         VtfId_LopNr,
         LopNr,
-        InskrTidPunkt,
-        UtskrTidPunkt,
+        InskrTidpunkt,
+        UtskrTidpunkt,
         Sjukhus,
         CASE
             WHEN SECS_SINCE_LAST_ICU_DSC IS NULL OR SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1
@@ -149,11 +149,11 @@ ICU_ADM_CONT_DATES AS(
     SELECT
       VtfId_LopNr,
       LopNr,
-      InskrTidPunkt,
-      UtskrTidPunkt,
+      InskrTidpunkt,
+      UtskrTidpunkt,
       CONT_ICU_ID,
-      MIN(InskrTidPunkt) OVER (PARTITION BY CONT_ICU_ID) AS CONT_ICU_ADM_DATE,
-      MAX(UtskrTidPunkt) OVER (PARTITION BY CONT_ICU_ID) AS CONT_ICU_DSC_DATE
+      MIN(InskrTidpunkt) OVER (PARTITION BY CONT_ICU_ID) AS CONT_ICU_ADM_DATE,
+      MAX(UtskrTidpunkt) OVER (PARTITION BY CONT_ICU_ID) AS CONT_ICU_DSC_DATE
     FROM ICU_ADM_CONT
 ),
 
@@ -168,8 +168,8 @@ T_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
         S.LopNr,
-        S.InskrTidPunkt,
-        S.UtskrTidPunkt,
+        S.InskrTidpunkt,
+        S.UtskrTidpunkt,
         S.AvdNamn,
         S.Sjukhus
     FROM SIR_BASDATA S
@@ -208,10 +208,10 @@ T_ICU_ADM_LAST_DSC AS (
     SELECT 
         VtfId_LopNr,
         LopNr,
-        InskrTidPunkt,
-        UtskrTidPunkt,
+        InskrTidpunkt,
+        UtskrTidpunkt,
         Sjukhus,
-        InskrTidPunkt - (MAX(UtskrTidPunkt) OVER (PARTITION BY LopNr ORDER BY InskrTidPunkt ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)) AS T_SECS_SINCE_LAST_ICU_DSC
+        InskrTidpunkt - (MAX(UtskrTidpunkt) OVER (PARTITION BY LopNr ORDER BY InskrTidpunkt ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)) AS T_SECS_SINCE_LAST_ICU_DSC
     FROM T_ICU_ADMISSIONS
 ),
 
@@ -226,8 +226,8 @@ T_ICU_ADM_CONT AS (
     SELECT
         VtfId_LopNr,
         LopNr,
-        InskrTidPunkt,
-        UtskrTidPunkt,
+        InskrTidpunkt,
+        UtskrTidpunkt,
         Sjukhus,
         CASE
             WHEN T_SECS_SINCE_LAST_ICU_DSC IS NULL OR T_SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1
@@ -242,11 +242,11 @@ T_ICU_ADM_CONT_DATES AS(
     SELECT
       VtfId_LopNr,
       LopNr,
-      InskrTidPunkt,
-      UtskrTidPunkt,
+      InskrTidpunkt,
+      UtskrTidpunkt,
       T_CONT_ICU_ID,
-      MIN(InskrTidPunkt) OVER (PARTITION BY T_CONT_ICU_ID) AS T_CONT_ICU_ADM_DATE,
-      MAX(UtskrTidPunkt) OVER (PARTITION BY T_CONT_ICU_ID) AS T_CONT_ICU_DSC_DATE
+      MIN(InskrTidpunkt) OVER (PARTITION BY T_CONT_ICU_ID) AS T_CONT_ICU_ADM_DATE,
+      MAX(UtskrTidpunkt) OVER (PARTITION BY T_CONT_ICU_ID) AS T_CONT_ICU_DSC_DATE
     FROM T_ICU_ADM_CONT
 ),
 
@@ -267,8 +267,8 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
         P.HADM_ID,
         P.CONT_HADM_ID,
         T.LopNr,
-        T.InskrTidPunkt,
-        T.UtskrTidPunkt,
+        T.InskrTidpunkt,
+        T.UtskrTidpunkt,
         T.AvdNamn,
         P.INDATUM,
         P.UTDATUM,
@@ -279,7 +279,7 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     FROM SIR_BASDATA T
     LEFT JOIN ICU_ADM_CONT TC ON T.VtfId_LopNr == TC.VtfId_LopNr
     LEFT JOIN PAR_HADM_CONT P ON T.LopNr == P.LopNr
-    WHERE T.InskrTidPunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
+    WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
 ),
 
 T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
@@ -288,8 +288,8 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
         P.HADM_ID,
         P.CONT_HADM_ID,
         T.LopNr,
-        T.InskrTidPunkt,
-        T.UtskrTidPunkt,
+        T.InskrTidpunkt,
+        T.UtskrTidpunkt,
         T.AvdNamn,
         P.INDATUM,
         P.UTDATUM,
@@ -299,7 +299,7 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     FROM T_ICU_ADMISSIONS T
     LEFT JOIN T_ICU_ADM_CONT TC ON T.VtfId_LopNr == TC.VtfId_LopNr
     LEFT JOIN PAR_HADM_CONT P ON T.LopNr == P.LopNr
-    WHERE T.InskrTidPunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
+    WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
     AND (
         (P.Sjukhus IN ('11001', '11003') AND T.AvdNamn IN ('S-CIVA', 'S-NIVA', 'KS/THIVA', 'KS ECMO', 'Astrid Lindgren'))
         OR
