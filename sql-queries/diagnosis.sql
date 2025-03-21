@@ -688,6 +688,57 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
     FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
 ),
 
+-- For compatibility reasons and potential future use, the inverse
+-- order of priorities is also available (i.e. first ordering based on
+-- time and then resolving ties using hierarchy.)
+ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY CONT_ICU_ID 
+               ORDER BY
+                  INDATUM,
+                  CASE 
+                    WHEN SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002) THEN 0 ELSE 1 END,
+                  CASE DX_GROUP
+                    WHEN 'TBI' THEN 1
+                    WHEN 'ASAH' THEN 2
+                    WHEN 'AIS' THEN 3
+                    WHEN 'ICH' THEN 4
+                    WHEN 'ABM' THEN 5
+                    WHEN 'CFX' THEN 6
+                    WHEN 'ENC' THEN 7
+                    WHEN 'TUM' THEN 8
+                    WHEN 'SEP' THEN 9
+                    WHEN 'HC' THEN 10
+                    ELSE 11 -- for any other value not specified
+                  END
+           ) AS DX_ORDER
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
+),
+
+T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+               PARTITION BY T_CONT_ICU_ID 
+               ORDER BY
+                        INDATUM,
+                        CASE DX_GROUP
+                            WHEN 'TBI' THEN 1
+                            WHEN 'ASAH' THEN 2
+                            WHEN 'AIS' THEN 3
+                            WHEN 'ICH' THEN 4
+                            WHEN 'ABM' THEN 5
+                            WHEN 'CFX' THEN 6
+                            WHEN 'ENC' THEN 7
+                            WHEN 'TUM' THEN 8
+                            WHEN 'SEP' THEN 9
+                            WHEN 'HC' THEN 10
+                            ELSE 11 -- for any other value not specified
+                        END
+           ) AS DX_ORDER
+    FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
+),
+
 -- Add additional identical CTE's with more appealing (and shorter) names.
 -- The old CTE's are kept to retain backwards compatibility
 
