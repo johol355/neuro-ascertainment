@@ -8,6 +8,7 @@
 -- Table of contents (cont'd):
 -- 3. Allocation of patients to diagnoses
 --    - Aneurysmal Subarachnoid Haemorrhage
+--    - Non ruptured Subarachnoid aneurysm
 --    - Traumatic Brain Injury
 --    - Cerebral Venous Thrombosis
 --    - Intracranial Haemorrhage
@@ -53,8 +54,7 @@ asah AS (
     WHERE (
             (
                 (P.Diagnos LIKE "I60%" -- Note the placement of the wildcard, i.e. the regex will search for the main diagnosis
-                OR P.Diagnos LIKE "I671%" -- See comment above
-                OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is included: If you are sick enough to get admitted to an ICU, it is still a relevant dx
+                OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is NOT included
                 AND P.Diagnos NOT LIKE "%S06%")
 
           OR (P.Diagnos LIKE "I60%" AND P.Diagnos LIKE "%S06%" AND (P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%"))
@@ -67,7 +67,6 @@ asah AS (
                 AND JULIANDAY(strftime('%Y-%m-%d', substr(D.DODSDAT, 1, 4) || '-' || substr(D.DODSDAT, 5, 2) || '-' || substr(D.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 30
                 AND P.Diagnos NOT LIKE "%S06%"
                 AND P.Diagnos NOT LIKE "%Q28%"
-                AND P.Diagnos NOT LIKE "I671%"
             )
         )
 ),
@@ -84,8 +83,7 @@ t_asah AS (
           AND (
             (
                 (P.Diagnos LIKE "I60%" -- Note the placement of the wildcard, i.e. the regex will search for the main diagnosis
-                OR P.Diagnos LIKE "I671%" -- See comment above
-                OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is included: If you are sick enough to get admitted to an ICU, it is still a relevant dx
+                OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is NOT included
                 AND P.Diagnos NOT LIKE "%S06%")
 
           OR (P.Diagnos LIKE "I60%" AND P.Diagnos LIKE "%S06%" AND (P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%"))
@@ -98,9 +96,32 @@ t_asah AS (
                 AND JULIANDAY(strftime('%Y-%m-%d', substr(D.DODSDAT, 1, 4) || '-' || substr(D.DODSDAT, 5, 2) || '-' || substr(D.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 30
                 AND P.Diagnos NOT LIKE "%S06%"
                 AND P.Diagnos NOT LIKE "%Q28%"
-                AND P.Diagnos NOT LIKE "I671%"
             )
         )
+),
+
+-- non-rupt aneurysm ----------------------------------------------------------------------
+ane AS (
+    SELECT
+        P.HADM_ID
+    FROM
+        PAR_HADM P
+    WHERE
+        P.Diagnos LIKE "I671%"
+    AND
+        P.Diagnos NOT LIKE "%I60%" -- To decrease risk of mixing in asah
+),
+
+t_ane AS (
+    SELECT
+        P.HADM_ID
+    FROM
+        PAR_HADM P
+    WHERE
+        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
+    AND
+        (P.Diagnos LIKE "I671%" AND
+        P.Diagnos NOT LIKE "%I60%") -- To decrease risk of mixing in asah
 ),
 
 ------------------------------------------------------------------------------
@@ -529,6 +550,7 @@ DX AS (
         P.Diagnos,
         CASE
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM asah) THEN 'ASAH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ane) THEN 'ANE'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM ich) THEN 'ICH'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM tbi) THEN 'TBI'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM ais) THEN 'AIS'
@@ -557,6 +579,7 @@ T_DX AS (
         P.Diagnos,
         CASE
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM t_asah) THEN 'ASAH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ane) THEN 'ANE'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM t_ich) THEN 'ICH'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM t_tbi) THEN 'TBI'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM t_ais) THEN 'AIS'
@@ -648,17 +671,18 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
                   CASE 
                     WHEN SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002) THEN 0 ELSE 1 END,
                   CASE DX_GROUP
-                    WHEN 'TBI' THEN 1
-                    WHEN 'ASAH' THEN 2
-                    WHEN 'AIS' THEN 3
-                    WHEN 'ICH' THEN 4
-                    WHEN 'ABM' THEN 5
-                    WHEN 'CFX' THEN 6
-                    WHEN 'ENC' THEN 7
-                    WHEN 'TUM' THEN 8
-                    WHEN 'SEP' THEN 9
-                    WHEN 'HC' THEN 10
-                    ELSE 11 -- for any other value not specified
+                        WHEN 'TBI' THEN 1
+                        WHEN 'ASAH' THEN 2
+                        WHEN 'ANE' THEN 3
+                        WHEN 'AIS' THEN 4
+                        WHEN 'ICH' THEN 5
+                        WHEN 'ABM' THEN 6
+                        WHEN 'CFX' THEN 7
+                        WHEN 'ENC' THEN 8
+                        WHEN 'TUM' THEN 9
+                        WHEN 'SEP' THEN 10
+                        WHEN 'HC' THEN 11
+                        ELSE 12 -- for any other value not specified
                   END,
                   INDATUM
            ) AS DX_ORDER
@@ -673,15 +697,16 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
                         CASE DX_GROUP
                             WHEN 'TBI' THEN 1
                             WHEN 'ASAH' THEN 2
-                            WHEN 'AIS' THEN 3
-                            WHEN 'ICH' THEN 4
-                            WHEN 'ABM' THEN 5
-                            WHEN 'CFX' THEN 6
-                            WHEN 'ENC' THEN 7
-                            WHEN 'TUM' THEN 8
-                            WHEN 'SEP' THEN 9
-                            WHEN 'HC' THEN 10
-                            ELSE 11 -- for any other value not specified
+                            WHEN 'ANE' THEN 3
+                            WHEN 'AIS' THEN 4
+                            WHEN 'ICH' THEN 5
+                            WHEN 'ABM' THEN 6
+                            WHEN 'CFX' THEN 7
+                            WHEN 'ENC' THEN 8
+                            WHEN 'TUM' THEN 9
+                            WHEN 'SEP' THEN 10
+                            WHEN 'HC' THEN 11
+                            ELSE 12 -- for any other value not specified
                         END,
                         INDATUM
            ) AS DX_ORDER
@@ -700,17 +725,18 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
                   CASE 
                     WHEN SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002) THEN 0 ELSE 1 END,
                   CASE DX_GROUP
-                    WHEN 'TBI' THEN 1
-                    WHEN 'ASAH' THEN 2
-                    WHEN 'AIS' THEN 3
-                    WHEN 'ICH' THEN 4
-                    WHEN 'ABM' THEN 5
-                    WHEN 'CFX' THEN 6
-                    WHEN 'ENC' THEN 7
-                    WHEN 'TUM' THEN 8
-                    WHEN 'SEP' THEN 9
-                    WHEN 'HC' THEN 10
-                    ELSE 11 -- for any other value not specified
+                        WHEN 'TBI' THEN 1
+                        WHEN 'ASAH' THEN 2
+                        WHEN 'ANE' THEN 3
+                        WHEN 'AIS' THEN 4
+                        WHEN 'ICH' THEN 5
+                        WHEN 'ABM' THEN 6
+                        WHEN 'CFX' THEN 7
+                        WHEN 'ENC' THEN 8
+                        WHEN 'TUM' THEN 9
+                        WHEN 'SEP' THEN 10
+                        WHEN 'HC' THEN 11
+                        ELSE 12 -- for any other value not specified
                   END
            ) AS DX_ORDER
     FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
@@ -725,15 +751,16 @@ T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
                         CASE DX_GROUP
                             WHEN 'TBI' THEN 1
                             WHEN 'ASAH' THEN 2
-                            WHEN 'AIS' THEN 3
-                            WHEN 'ICH' THEN 4
-                            WHEN 'ABM' THEN 5
-                            WHEN 'CFX' THEN 6
-                            WHEN 'ENC' THEN 7
-                            WHEN 'TUM' THEN 8
-                            WHEN 'SEP' THEN 9
-                            WHEN 'HC' THEN 10
-                            ELSE 11 -- for any other value not specified
+                            WHEN 'ANE' THEN 3
+                            WHEN 'AIS' THEN 4
+                            WHEN 'ICH' THEN 5
+                            WHEN 'ABM' THEN 6
+                            WHEN 'CFX' THEN 7
+                            WHEN 'ENC' THEN 8
+                            WHEN 'TUM' THEN 9
+                            WHEN 'SEP' THEN 10
+                            WHEN 'HC' THEN 11
+                            ELSE 12 -- for any other value not specified
                         END
            ) AS DX_ORDER
     FROM T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX

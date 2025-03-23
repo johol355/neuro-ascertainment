@@ -5,3 +5,4 @@
 /sql-queries/test.ipynb
 /sql-queries/__pycache__/
 *.DS_Store
+*.Rhistory
