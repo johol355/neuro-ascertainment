@@ -310,38 +310,35 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
 ),
 
-
---,
---
---T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
---    SELECT 
---        T.VtfId_LopNr,
---        P.HADM_ID,
---        P.CONT_HADM_ID,
---        T.LopNr,
---        T.InskrTidpunkt,
---        T.UtskrTidpunkt,
---        T.AvdNamn,
---        P.INDATUM,
---        P.UTDATUM,
---        P.MVO,
---        P.SJUKHUS,
---        TC.T_CONT_ICU_ID
---    FROM T_ICU_ADMISSIONS T
---    LEFT JOIN T_ICU_ADM_CONT TC ON T.VtfId_LopNr == TC.VtfId_LopNr
---    LEFT JOIN PAR_HADM_CONT P ON T.LopNr == P.LopNr
---    WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
---    AND (
---        (P.Sjukhus IN ('11001', '11003') AND T.AvdNamn IN ('S-CIVA', 'S-NIVA', 'KS/THIVA', 'KS ECMO', 'Astrid Lindgren'))
---        OR
---        (P.Sjukhus = '51001' AND T.AvdNamn IN ('SU/NIVA', 'SU/CIVA', 'SU/TIVA'))
---        OR
---        (P.Sjukhus = '12001' AND T.AvdNamn IN ('Uppsala', 'Uppsala BRIVA', 'Uppsala TIVA', 'Uppsala BIVA', 'Uppsala NIVA'))
---        OR
---        (P.Sjukhus = '21001' AND T.AvdNamn IN ('Linköping', 'Linköping NIVA', 'Linköping BRIVA'))
---        OR
---        (P.Sjukhus = '64001' AND T.AvdNamn IN ('Umeå IVA', 'Umeå - Thorax'))
---        OR
---        (P.Sjukhus IN ('41001', '41002') AND T.AvdNamn IN ('IVA Lund', 'Lund - BIVA', 'Lund - NIVA'))
---    )
---)
+T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
+    SELECT 
+        T.VtfId_LopNr,
+        P.HADM_ID,
+        P.CONT_HADM_ID,
+        T.LopNr,
+        T.InskrTidpunkt,
+        T.UtskrTidpunkt,
+        T.AvdNamn,
+        P.INDATUM,
+        P.UTDATUM,
+        P.MVO,
+        P.SJUKHUS,
+        TC.T_CONT_ICU_ID
+    FROM T_ICU_ADMISSIONS T
+    LEFT JOIN T_ICU_ADM_CONT TC ON T.VtfId_LopNr == TC.VtfId_LopNr
+    LEFT JOIN PAR_HADM_CONT P ON T.LopNr == P.LopNr
+    WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
+    AND (
+        (P.Sjukhus IN ('11001', '11003') AND T.AvdNamn IN ('S-CIVA', 'S-NIVA', 'KS/THIVA', 'KS ECMO', 'Astrid Lindgren'))
+        OR
+        (P.Sjukhus = '51001' AND T.AvdNamn IN ('SU/NIVA', 'SU/CIVA', 'SU/TIVA'))
+        OR
+        (P.Sjukhus = '12001' AND T.AvdNamn IN ('Uppsala', 'Uppsala BRIVA', 'Uppsala TIVA', 'Uppsala BIVA', 'Uppsala NIVA'))
+        OR
+        (P.Sjukhus = '21001' AND T.AvdNamn IN ('Linköping', 'Linköping NIVA', 'Linköping BRIVA'))
+        OR
+        (P.Sjukhus = '64001' AND T.AvdNamn IN ('Umeå IVA', 'Umeå - Thorax'))
+        OR
+        (P.Sjukhus IN ('41001', '41002') AND T.AvdNamn IN ('IVA Lund', 'Lund - BIVA', 'Lund - NIVA'))
+    )
+)
