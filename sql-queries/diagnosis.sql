@@ -120,7 +120,7 @@ tbi AS (
              P.Diagnos LIKE "S071%" OR
              P.Diagnos LIKE "S04%" OR
              P.Diagnos LIKE "S09%" OR
-             P.Diagnos LIKE "S12%")))
+             P.Diagnos LIKE "S12%"))) -- Previously had "AND (P.Diagnos LIKE "%S06%")""
 ),
 
 ------------------------------------------------------------------------------
@@ -391,29 +391,24 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
 ------------------------------------------------------------------------------
 
 CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
-    SELECT
-        F.*,
-        I.HADM_ID,
-        I.SJUKHUS,
-        I.INDATUM,
-        I.UTDATUM,
-        I.DX_GROUP
-    FROM FIRST_ADM_WITHIN_CONT_ICU_ADMISSION F
-    LEFT JOIN ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX I ON F.VtfId_LopNr = I.VtfId_LopNr
+    SELECT I.*
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX I
+    WHERE EXISTS (
+        SELECT 1
+        FROM FIRST_ADM_WITHIN_CONT_ICU_ADMISSION F
+        WHERE F.VtfId_LopNr = I.VtfId_LopNr
+    )
 ),
 
 T_CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
-    SELECT
-        F.*,
-        I.HADM_ID,
-        I.SJUKHUS,
-        I.INDATUM,
-        I.UTDATUM,
-        I.DX_GROUP
-    FROM FIRST_ADM_WITHIN_T_CONT_ICU_ADMISSION F
-    LEFT JOIN ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX I ON F.VtfId_LopNr = I.VtfId_LopNr
+    SELECT I.*
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX I
+    WHERE EXISTS (
+        SELECT 1
+        FROM FIRST_ADM_WITHIN_T_CONT_ICU_ADMISSION F
+        WHERE F.VtfId_LopNr = I.VtfId_LopNr
+    )
 ),
-
 
 ------------------------------------------------------------------------------
 -- CTE ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME
