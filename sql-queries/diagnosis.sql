@@ -414,6 +414,7 @@ T_CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
 -- CTE ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME
 -- Helps resolving tie situations where one SIR admission is associated with 
 -- several PAR admissions. 
+-- Örebro is considered a tertiary center from 2014/01/01
 ------------------------------------------------------------------------------
 ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
     SELECT *,
@@ -421,7 +422,7 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
                PARTITION BY VtfId_LopNr 
                ORDER BY
                   CASE 
-                    WHEN SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002) THEN 0 ELSE 1 END,
+                    WHEN (SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)) OR (SJUKHUS = 55010 AND INDATUM >= 16071) THEN 0 ELSE 1 END,
                   CASE DX_GROUP
                         WHEN 'ASAH' THEN 1
                         WHEN 'ANE' THEN 2

@@ -115,7 +115,7 @@ WITH PAR_HADM AS (
                ORDER BY LopNr,
                         INDATUM,
                         UTDATUM,
-                        CASE WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002') THEN 0 ELSE 1 END
+                        CASE WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002', '55010') THEN 0 ELSE 1 END
            ) AS HADM_ID
     FROM PAR
     WHERE 
@@ -262,7 +262,7 @@ T_ICU_ADMISSIONS AS (
         S.AvdNamn,
         S.Sjukhus
     FROM SIR_BASDATA S
-    WHERE S.AvdNamn IN (
+    WHERE ((S.AvdNamn IN (
         'S-CIVA',
         'S-NIVA',
         'KS/THIVA',
@@ -284,7 +284,8 @@ T_ICU_ADMISSIONS AS (
         'Uppsala TIVA',
         'Uppsala BIVA',
         'Uppsala NIVA'
-        )
+        )) OR
+        (S.AvdNamn = 'IVAUSÖ' AND InskrTidpunkt > 1388534400))
 ),
 
 ------------------------------------------------------------------------------
