@@ -119,7 +119,8 @@ tbi AS (
              P.Diagnos LIKE "S029%" OR
              P.Diagnos LIKE "S071%" OR
              P.Diagnos LIKE "S04%" OR
-             P.Diagnos LIKE "S12%") AND (P.Diagnos LIKE "%S06%")))
+             P.Diagnos LIKE "S09%" OR
+             P.Diagnos LIKE "S12%")))
 ),
 
 ------------------------------------------------------------------------------
@@ -418,12 +419,6 @@ T_CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
 -- CTE ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME
 -- Helps resolving tie situations where one SIR admission is associated with 
 -- several PAR admissions. 
--- In the case of T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY, 
--- the earliest (within the time window) admissions is chosen, if there still is 
--- a tie a hierarchical ordering of diagnosis will choose one admission only.
--- In the case of T_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME, 
--- a hierarchical ordering of diagnosis will choose one admission and if there
--- is still a tie the earliest (within the time window) admissions is chosen.
 ------------------------------------------------------------------------------
 ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME AS (
     SELECT *,
@@ -546,8 +541,15 @@ ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
 ),
 
 -- Add additional identical CTEs with more appealing (and shorter) names.
-ICU_ADM_DX AS(SELECT * FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME)
+ICU_ADM_DX AS(SELECT * FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_HIERARCHY_TIME),
 
-CONT_ICU_ADM_DX AS(SELECT * FROM CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_WITH_DX_HIERARCHY_TIME)
+CONT_ICU_ADM_DX AS(SELECT * FROM CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_WITH_DX_HIERARCHY_TIME),
 
-T_CONT_ICU_ADM_DX AS(SELECT * FROM T_CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_WITH_DX_HIERARCHY_TIME)
+T_CONT_ICU_ADM_DX AS(SELECT * FROM T_CONT_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_WITH_DX_HIERARCHY_TIME),
+
+-- For each of the three CTEs above, return the identifiers and the didagnosis
+ICU_ADM_MAIN_DX AS (SELECT * FROM ICU_ADM_DX WHERE DX_ORDER = 1),
+
+CONT_ICU_ADM_MAIN_DX AS (SELECT * FROM CONT_ICU_ADM_DX WHERE DX_ORDER = 1),
+
+T_CONT_ICU_ADM_MAIN_DX AS (SELECT * FROM T_CONT_ICU_ADM_DX WHERE DX_ORDER = 1)
