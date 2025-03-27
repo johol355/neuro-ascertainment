@@ -4,29 +4,100 @@
 ------------------------------------------------------------------------------
 ------------------------------------------------------------------------------
 -- Preamble:
--- This .sql-document contains queries for constructing common table expressions
--- central to the EpiNIC-project. When building a final query, this should be
--- the first code to be run and can be extended with additional queries in 
--- various other scripts (see README).
-------------------------------------------------------------------------------
--- Table of contents:
--- 1. Hospital admission ID and creation of coherent hospital admissions
+-- This .sql-document contains queries for constructing Common Table Expressions (CTEs)
+-- essential to the EpiNIC project. Run this document first when building a final
+-- query. Extendable with additional queries from separate scripts (refer to README).
+
+-- Table of Contents:
+-- 1. Hospital Admission IDs and Creation of Continuous Hospital Admissions Concept
 --    - PAR_HADM
 --    - PAR_HADM_LAST_DSC
 --    - PAR_HADM_CONT
 --    - PAR_HADM_CONT_DATES
--- 2. Clerical ICU-admission information and creation of continuous
---    ICU-admissions
+-- 2. Creation of Continuous ICU Admissions Concept
 --    - ICU_ADM_LAST_DSC
 --    - ICU_ADM_CONT
+--    - ICU_ADM_CONT_DATES
+--    - RANK_SIR_ADM_WITHIN_CONT_ICU_ADMISSION
+--    - FIRST_ADM_WITHIN_CONT_ICU_ADMISSION
 --    - ICU_ADMISSIONS_MATCHED_WITH_PAR
+-- 3. Creation of Continuous Tertiary ICU Admissions Concept
 --    - T_ICU_ADMISSIONS
 --    - T_ICU_ADM_LAST_DSC
 --    - T_ICU_ADM_CONT
---    - T_ICU_ADMISSIONS_MATCHED_WITH_PAR
+--    - T_ICU_ADM_CONT_DATES
+--    - RANK_SIR_ADM_WITHIN_T_CONT_ICU_ADMISSION
+--    - FIRST_ADM_WITHIN_T_CONT_ICU_ADMISSION
+
+-- Summary of CTEs:
+-- 1. Hospital Admission IDs and Creation of Continuous Hospital Admissions Concept:
+
+-- CTE: PAR_HADM
+-- Assigns a unique admission ID (HADM_ID) to each hospital admission.
+
+-- CTE: PAR_HADM_LAST_DSC
+-- Calculates the number of days since the patient's previous discharge (DAYS_SINCE_LAST_DSC).
+
+-- CTE: PAR_HADM_CONT
+-- Defines coherent hospital admission IDs (CONT_HADM_ID).
+
+-- CTE: PAR_HADM_CONT_DATES
+-- Summarizes coherent hospital admissions by providing:
+-- - Earliest admission date (CONT_HADM_ADM_DATE).
+-- - Latest discharge date (CONT_HADM_DSC_DATE).
+-- - Lists constituent hospital admission IDs.
+
+-- 2. Creation of Continuous ICU Admissions Concept
+
+-- CTE: ICU_ADM_LAST_DSC
+-- Computes seconds elapsed since the patient's previous ICU discharge (SECS_SINCE_LAST_ICU_DSC).
+
+-- CTE: ICU_ADM_CONT
+-- Defines continuous ICU admissions by:
+-- - Flagging a new ICU admission when more than 12 hours (43,200 seconds) elapse post-discharge.
+-- - Assigning a unique continuous ICU admission ID (CONT_ICU_ID).
+
+-- CTE: ICU_ADM_CONT_DATES
+-- Provides dates for each coherent ICU admission period:
+-- - Admission start (CONT_ICU_ADM_DATE).
+-- - Discharge end (CONT_ICU_DSC_DATE).
+
+-- CTE: RANK_SIR_ADM_WITHIN_CONT_ICU_ADMISSION
+-- Ranks individual ICU admissions within each continuous ICU admission.
+
+-- CTE: FIRST_ADM_WITHIN_CONT_ICU_ADMISSION
+-- Selects first  ICU admission within each continuous ICU admission period.
+
+-- 3. Creation of Continuous Tertiary ICU Admissions Concept:
+
+-- CTE: T_ICU_ADMISSIONS
+-- Filters tertiary ICU admissions based on predefined ICU departments.
+
+-- CTE: T_ICU_ADM_LAST_DSC
+-- Calculates seconds elapsed since the last tertiary ICU discharge (T_SECS_SINCE_LAST_ICU_DSC).
+
+-- CTE: T_ICU_ADM_CONT
+-- Defines coherent tertiary ICU admissions by:
+-- - Flagging new tertiary ICU admissions with a gap exceeding 12 hours post-discharge.
+-- - Generating unique tertiary ICU admission IDs (T_CONT_ICU_ID).
+
+-- CTE: T_ICU_ADM_CONT_DATES
+-- Provides start and end timestamps of continuous tertiary ICU admissions.
+
+-- CTE: RANK_SIR_ADM_WITHIN_T_CONT_ICU_ADMISSION
+-- Orders tertiary ICU admissions within each continuous tertiary admission.
+
+-- CTE: FIRST_ADM_WITHIN_T_CONT_ICU_ADMISSION
+-- Selects first tertiary ICU admission within each continuous tertiary ICU admission period.
+
+-- CTE: ICU_ADMISSIONS_MATCHED_WITH_PAR
+-- Matches ICU admissions (from SIR_BASDATA) with hospital admissions (from PAR_HADM_CONT):
+-- - ICU admissions matched within ±1 day of hospital admission.
+-- - Includes continuous ICU admission IDs (CONT_ICU_ID).
+-- - Includes continuous tertiary ICU admission IDs (T_CONT_ICU_ID) when applicable.
+-- - Expands data rows in case of multiple matching hospital admissions per ICU admission.
+-- - Admissions without matching hospital records are excluded.
 ------------------------------------------------------------------------------
-
-
 
 
 ------------------------------------------------------------------------------
@@ -44,7 +115,7 @@ WITH PAR_HADM AS (
                ORDER BY LopNr,
                         INDATUM,
                         UTDATUM,
-                        CASE WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002') THEN 0 ELSE 1 END
+                        CASE WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002', '55010') THEN 0 ELSE 1 END
            ) AS HADM_ID
     FROM PAR
     WHERE 
@@ -73,15 +144,16 @@ PAR_HADM_LAST_DSC AS (
 ------------------------------------------------------------------------------
 
 PAR_HADM_CONT AS (
-    SELECT
-        *,
+    SELECT *,
         CASE
             WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1
             ELSE 0
         END AS ADMISSION_FLAG,
-        -- The following bit sums all "admission flags" and adds it do patient id * 1000 to create a unique hospital admission id
         SUM(CASE WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1 ELSE 0 END) 
-        OVER (PARTITION BY LopNr ROWS UNBOUNDED PRECEDING) + LopNr * 1000 AS CONT_HADM_ID
+            OVER (PARTITION BY LopNr ORDER BY INDATUM ROWS UNBOUNDED PRECEDING) AS AdmissionSequence,
+        -- Explicit identifier combining patient and admission sequence:
+        LopNr || '-CONT_PAR_ADM-' || SUM(CASE WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY LopNr ORDER BY INDATUM ROWS UNBOUNDED PRECEDING) AS CONT_HADM_ID
     FROM PAR_HADM_LAST_DSC
 ),
 
@@ -131,31 +203,49 @@ ICU_ADM_LAST_DSC AS (
 
 ICU_ADM_CONT AS (
     SELECT
-        VtfId_LopNr,
-        LopNr,
-        InskrTidpunkt,
-        UtskrTidpunkt,
-        Sjukhus,
+        *,
         CASE
             WHEN SECS_SINCE_LAST_ICU_DSC IS NULL OR SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1
             ELSE 0
-        END AS ADMISSION_FLAG,
+        END AS ICU_ADMISSION_FLAG,
         SUM(CASE WHEN SECS_SINCE_LAST_ICU_DSC IS NULL OR SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1 ELSE 0 END) 
-        OVER (PARTITION BY LopNr ROWS UNBOUNDED PRECEDING) + LopNr * 1000 AS CONT_ICU_ID
+            OVER (PARTITION BY LopNr ORDER BY InskrTidpunkt ROWS UNBOUNDED PRECEDING) AS ICUAdmissionSequence,
+        LopNr || '-CONT_ICU_ADM-' || SUM(CASE WHEN SECS_SINCE_LAST_ICU_DSC IS NULL OR SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1 ELSE 0 END)
+            OVER (PARTITION BY LopNr ORDER BY InskrTidpunkt ROWS UNBOUNDED PRECEDING) AS CONT_ICU_ID
     FROM ICU_ADM_LAST_DSC
 ),
 
 ICU_ADM_CONT_DATES AS(
     SELECT
-      VtfId_LopNr,
-      LopNr,
-      InskrTidpunkt,
-      UtskrTidpunkt,
-      CONT_ICU_ID,
+      *,
       MIN(InskrTidpunkt) OVER (PARTITION BY CONT_ICU_ID) AS CONT_ICU_ADM_DATE,
       MAX(UtskrTidpunkt) OVER (PARTITION BY CONT_ICU_ID) AS CONT_ICU_DSC_DATE
     FROM ICU_ADM_CONT
 ),
+
+-- Get first SIR ADMISSION within a SIR CONT_ICU_ADMISSION
+
+RANK_SIR_ADM_WITHIN_CONT_ICU_ADMISSION AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+                PARTITION BY CONT_ICU_ID
+                ORDER BY InskrTidpunkt
+           ) AS SIR_ADM_ORDER
+    FROM ICU_ADM_CONT_DATES
+),
+
+FIRST_ADM_WITHIN_CONT_ICU_ADMISSION AS (
+    SELECT CONT_ICU_ID,
+           CONT_ICU_ADM_DATE,
+           CONT_ICU_DSC_DATE,
+           VtfId_LopNr,
+           LopNr,
+           InskrTidpunkt,
+           UtskrTidpunkt
+    FROM RANK_SIR_ADM_WITHIN_CONT_ICU_ADMISSION
+    WHERE SIR_ADM_ORDER = 1
+),
+
 
 ------------------------------------------------------------------------------
 -- TERTIARY ICU ADMISSION AND ID ---------------------------------------------
@@ -173,7 +263,7 @@ T_ICU_ADMISSIONS AS (
         S.AvdNamn,
         S.Sjukhus
     FROM SIR_BASDATA S
-    WHERE S.AvdNamn IN (
+    WHERE ((S.AvdNamn IN (
         'S-CIVA',
         'S-NIVA',
         'KS/THIVA',
@@ -195,7 +285,8 @@ T_ICU_ADMISSIONS AS (
         'Uppsala TIVA',
         'Uppsala BIVA',
         'Uppsala NIVA'
-        )
+        )) OR
+        (S.AvdNamn = 'IVAUSÖ' AND InskrTidpunkt > 1388534400))
 ),
 
 ------------------------------------------------------------------------------
@@ -220,6 +311,8 @@ T_ICU_ADM_LAST_DSC AS (
 -- Analogous to PAR_HADM_CONT, flags and creates a unique ID for each
 -- coherent ICU-admission to a tertiary ICU if no more than 12 hours
 -- has passed since a previous tertiary ICU discharge.
+-- Note that the multiplier for in the assignment if the ID is different
+-- than in ICU_ADM_CONT to generate unique identifier series for each patient
 ------------------------------------------------------------------------------
 
 T_ICU_ADM_CONT AS (
@@ -232,9 +325,11 @@ T_ICU_ADM_CONT AS (
         CASE
             WHEN T_SECS_SINCE_LAST_ICU_DSC IS NULL OR T_SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1
             ELSE 0
-        END AS T_ADMISSION_FLAG,
+        END AS T_ICU_ADMISSION_FLAG,
         SUM(CASE WHEN T_SECS_SINCE_LAST_ICU_DSC IS NULL OR T_SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1 ELSE 0 END) 
-        OVER (PARTITION BY LopNr ROWS UNBOUNDED PRECEDING) + LopNr * 1000 AS T_CONT_ICU_ID
+            OVER (PARTITION BY LopNr ORDER BY InskrTidpunkt ROWS UNBOUNDED PRECEDING) AS TertiaryICUAdmissionSequence,
+        LopNr || '-CONT-TERT_ICU-ADM-' || SUM(CASE WHEN T_SECS_SINCE_LAST_ICU_DSC IS NULL OR T_SECS_SINCE_LAST_ICU_DSC > (86400/2) THEN 1 ELSE 0 END)
+            OVER (PARTITION BY LopNr ORDER BY InskrTidpunkt ROWS UNBOUNDED PRECEDING) AS T_CONT_ICU_ID
     FROM T_ICU_ADM_LAST_DSC
 ),
 
@@ -250,67 +345,78 @@ T_ICU_ADM_CONT_DATES AS(
     FROM T_ICU_ADM_CONT
 ),
 
+-- Get first SIR ADMISSION within a SIR T_CONT_ICU_ADMISSION
+
+RANK_SIR_ADM_WITHIN_T_CONT_ICU_ADMISSION AS (
+    SELECT *,
+           ROW_NUMBER() OVER (
+                PARTITION BY T_CONT_ICU_ID
+                ORDER BY InskrTidpunkt
+           ) AS SIR_ADM_ORDER
+    FROM T_ICU_ADM_CONT_DATES
+),
+
+FIRST_ADM_WITHIN_T_CONT_ICU_ADMISSION AS (
+    SELECT T_CONT_ICU_ID,
+           VtfId_LopNr,
+           LopNr,
+           T_CONT_ICU_ADM_DATE,
+           T_CONT_ICU_DSC_DATE,
+           InskrTidpunkt,
+           UtskrTidpunkt
+    FROM RANK_SIR_ADM_WITHIN_T_CONT_ICU_ADMISSION
+    WHERE SIR_ADM_ORDER = 1
+),
+
 ------------------------------------------------------------------------------
--- CTE T_ICU_ADMISSIONS_MATCHED_WITH_PAR & T_ICU_ADMISSIONS_MATCHED_WITH_PAR:
--- All ICU admissions in T_ICU_ADMISSIONS are matched (by left join) with 
+-- CTE ICU_ADMISSIONS_MATCHED_WITH_PAR:
+-- All ICU admissions (in SIR_BASDATA) are matched (by left join) with 
 -- PAR admissions in PAR_HADM_CONT_DATES fulfilling the criteria:
---  - PAR admission at Tertiary Hospital
---  - PAR admission starting from 14 days prior to ICU admission up to 14 days 
+--  - PAR-vtf starting from 1 days prior to ICU admission up to 1 days 
 --    after ICU admission
+-- Other notes:
 --  - If no PAR admission matching the SIR admission the latter will drop out
 --  - If multiple PAR admissions fulfill matching criteria, multiple rows will 
 --    be returned for that SIR admission
+--  - Each SIR Vtf has an associated "composite" (continuous) ICU admission, here
+--    this ID is added to the CTE by left joning ICU_ADM_CONT
+--  - In case there is a (continuous) tertiary ICU admit associated with the SIR
+--    VtfId_LopNr, this will be added to the resulting table. If the SIR admit
+--    is not part of a continuous tertiary ICU admit, the row in the column will be 
+--    null.
+--  Example:
+--  - A patient is admitted to Gävle ICU and the Dept. of Medicine in Gävle, with 
+--    an ICH, before being transferred urgently to Uppsala NSICU and the Dept. of
+--    Neurology. The same day, the patient is admitted to the Dept. of Neurosurgery
+--    due to having an expanding hemotoma evacuated. Two days later the patient is
+--    transferred to the Uppsala General ICU and admitted to the Dept. of Neurosurgery.
+--    This will first generate 3 rows, one for each ICU admit, before being expanded
+--    with each PAR admit with +/-1 of the ICU admits. Here likely 3 admits for the first
+--    two ICU stays, and 1 for the third ICU stay. So, we would end up with 7 rows. All
+--    of them should have the same "CONT_ICU_ID". The Uppsala ICU rows should all have
+--    the same T_CONT_ICU_ID
+-- 
+--
 ------------------------------------------------------------------------------
 ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     SELECT 
-        T.VtfId_LopNr,
+        S.VtfId_LopNr,
         P.HADM_ID,
         P.CONT_HADM_ID,
-        T.LopNr,
-        T.InskrTidpunkt,
-        T.UtskrTidpunkt,
-        T.AvdNamn,
+        S.LopNr,
+        S.InskrTidpunkt,
+        S.UtskrTidpunkt,
+        S.AvdNamn,
         P.INDATUM,
         P.UTDATUM,
         P.MVO,
         P.SJUKHUS,
-        T.SjukhusTyp,
-        TC.CONT_ICU_ID
-    FROM SIR_BASDATA T
-    LEFT JOIN ICU_ADM_CONT TC ON T.VtfId_LopNr == TC.VtfId_LopNr
-    LEFT JOIN PAR_HADM_CONT P ON T.LopNr == P.LopNr
-    WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
-),
-
-T_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
-    SELECT 
-        T.VtfId_LopNr,
-        P.HADM_ID,
-        P.CONT_HADM_ID,
-        T.LopNr,
-        T.InskrTidpunkt,
-        T.UtskrTidpunkt,
-        T.AvdNamn,
-        P.INDATUM,
-        P.UTDATUM,
-        P.MVO,
-        P.SJUKHUS,
-        TC.T_CONT_ICU_ID
-    FROM T_ICU_ADMISSIONS T
-    LEFT JOIN T_ICU_ADM_CONT TC ON T.VtfId_LopNr == TC.VtfId_LopNr
-    LEFT JOIN PAR_HADM_CONT P ON T.LopNr == P.LopNr
-    WHERE T.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
-    AND (
-        (P.Sjukhus IN ('11001', '11003') AND T.AvdNamn IN ('S-CIVA', 'S-NIVA', 'KS/THIVA', 'KS ECMO', 'Astrid Lindgren'))
-        OR
-        (P.Sjukhus = '51001' AND T.AvdNamn IN ('SU/NIVA', 'SU/CIVA', 'SU/TIVA'))
-        OR
-        (P.Sjukhus = '12001' AND T.AvdNamn IN ('Uppsala', 'Uppsala BRIVA', 'Uppsala TIVA', 'Uppsala BIVA', 'Uppsala NIVA'))
-        OR
-        (P.Sjukhus = '21001' AND T.AvdNamn IN ('Linköping', 'Linköping NIVA', 'Linköping BRIVA'))
-        OR
-        (P.Sjukhus = '64001' AND T.AvdNamn IN ('Umeå IVA', 'Umeå - Thorax'))
-        OR
-        (P.Sjukhus IN ('41001', '41002') AND T.AvdNamn IN ('IVA Lund', 'Lund - BIVA', 'Lund - NIVA'))
-    )
+        S.SjukhusTyp,
+        SC.CONT_ICU_ID,
+        STC.T_CONT_ICU_ID
+    FROM SIR_BASDATA S
+    LEFT JOIN ICU_ADM_CONT SC ON S.VtfId_LopNr == SC.VtfId_LopNr
+    LEFT JOIN T_ICU_ADM_CONT_DATES STC ON S.VtfId_LopNr == STC.VtfId_LopNr
+    LEFT JOIN PAR_HADM_CONT P ON S.LopNr == P.LopNr
+    WHERE S.InskrTidpunkt/86400 BETWEEN P.INDATUM - 1 AND P.UTDATUM + 1
 )

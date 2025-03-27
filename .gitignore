@@ -3,6 +3,7 @@
 /sql-queries/*.Rmd
 /sql-queries/*.Rhistory
 /sql-queries/test.ipynb
+/sql-queries/test-2.ipynb
 /sql-queries/__pycache__/
 *.DS_Store
 *.Rhistory
