@@ -239,6 +239,7 @@ FIRST_ADM_WITHIN_CONT_ICU_ADMISSION AS (
            CONT_ICU_ADM_DATE,
            CONT_ICU_DSC_DATE,
            VtfId_LopNr,
+           LopNr,
            InskrTidpunkt,
            UtskrTidpunkt
     FROM RANK_SIR_ADM_WITHIN_CONT_ICU_ADMISSION
@@ -358,6 +359,7 @@ RANK_SIR_ADM_WITHIN_T_CONT_ICU_ADMISSION AS (
 FIRST_ADM_WITHIN_T_CONT_ICU_ADMISSION AS (
     SELECT T_CONT_ICU_ID,
            VtfId_LopNr,
+           LopNr,
            T_CONT_ICU_ADM_DATE,
            T_CONT_ICU_DSC_DATE,
            InskrTidpunkt,
