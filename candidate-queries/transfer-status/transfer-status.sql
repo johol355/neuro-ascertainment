@@ -4,8 +4,8 @@ T_CONT_ICU_ADM_MAIN_DX_PRUNED AS (
            (ROW_NUMBER() OVER (PARTITION BY T.LopNr ORDER BY T.InskrTidpunkt ASC)) AS ADM_ORDER
     FROM T_CONT_ICU_ADM_MAIN_DX T
     WHERE AvdNamn NOT IN ('KS/THIVA', 'KS ECMO', 'Astrid Lindgren', 'Uppsala BRIVA', 'Uppsala TIVA', 'Uppsala BIVA', 'SU/TIVA', 'Linköping BRIVA', 'Lund - BIVA', 'Umeå - Thorax')
-    AND T.InskrTidpunkt <= 1719791940 -- ICU admits prior 2024-06-30 23:59 (to allow for 180 DAOH)
-    AND T.InskrTidpunkt >= 1483228800 -- ICU admits after 2017-01-01 00:00 (1451606400 would be 1/1/2016)
+    --AND T.InskrTidpunkt <= 1719791940 -- ICU admits prior 2024-06-30 23:59 (to allow for 180 DAOH)
+    --AND T.InskrTidpunkt >= 1483228800 -- ICU admits after 2017-01-01 00:00 (1451606400 would be 1/1/2016)
     AND T.DX_GROUP IN ("ASAH", "TBI", "AIS", "ICH")
 ),
 
