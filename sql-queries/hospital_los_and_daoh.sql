@@ -102,7 +102,7 @@ DAOH_90_STEP_3 AS (
 ),
 
 -- A CTE that gets the Hospital LOS for the relevant ADM GROUP above, i.e. the Hospital LOS from the ICU admission at hand
-H_LOS AS (
+DAOH_H_LOS AS (
     SELECT
         VtfId_LopNr,
         LopNr,
