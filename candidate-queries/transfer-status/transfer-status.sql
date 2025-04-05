@@ -225,7 +225,15 @@ Q AS (
         HO.OSH_HADM_FLAG,
         ICU.OSH_ICU_FLAG,
         PRE.PRE_ICU_SAME_HOSP_HADM_FLAG,
-        LON.ANY_LONG_CONT_HADM_FLAG
+        LON.ANY_LONG_CONT_HADM_FLAG,
+        S.sir_consciousness_level,
+        S.SAPS_unconcious,
+        S.SAPS_obtunded,
+        S.SAPS_total_score,
+        S.SAPS_AMV,
+        S.SAPS_hypotension,
+        S.SAPS_acidosis,
+        S.SAPS_hypothermia
     FROM T_CONT_ICU_ADM_MAIN_DX_PRUNED_FIRST I
     LEFT JOIN OSH_ER_FLAG ER ON I.T_CONT_ICU_ID = ER.T_CONT_ICU_ID
     LEFT JOIN OSH_HADM_FLAG HO ON I.T_CONT_ICU_ID = HO.T_CONT_ICU_ID
