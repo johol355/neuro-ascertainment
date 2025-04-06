@@ -133,6 +133,7 @@ OSH_ICU AS (
         I.T_CONT_ICU_ID,
         I.VtfId_LopNr,
         I.LopNr,
+        I.HADM_ID,
         I.AvdNamn AS CURR_AvdNamn,
         I.InskrTidpunkt AS CURR_ICU_IN,
         B.InskrTidpunkt,
@@ -221,6 +222,8 @@ Q AS (
         I.AvdNamn,
         I.InskrTidpunkt / 86400 AS IVA_INDATUM,
         I.VtfId_LopNr,
+        I.HADM_ID,
+        P.Alder as age,
         ER.OSH_ER_FLAG,
         HO.OSH_HADM_FLAG,
         ICU.OSH_ICU_FLAG,
@@ -241,4 +244,5 @@ Q AS (
     LEFT JOIN PRE_ICU_SAME_HOSP_HADM_FLAG PRE ON I.T_CONT_ICU_ID = PRE.T_CONT_ICU_ID
     LEFT JOIN ANY_LONG_CONT_HADM_FLAG LON ON I.T_CONT_ICU_ID = LON.T_CONT_ICU_ID
     LEFT JOIN DESCRIPTIVE_SIR S ON I.VtfId_LopNr = S.VtfId_LopNr
+    LEFT JOIN PAR_HADM P ON I.HADM_ID = P.HADM_ID
 )
