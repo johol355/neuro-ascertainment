@@ -158,6 +158,18 @@ OSH_ICU AS (
         ON I.LopNr = B.LopNr
 ),
 
+OSH_ICU_RANKED AS (
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY T_CONT_ICU_ID
+            ORDER BY 
+                OSH_ICU_FLAG DESC,      -- Prioritize rows with OSH_ICU_FLAG = 1
+                InskrTidpunkt DESC      -- Among those, choose the latest InskrTidpunkt
+        ) AS rn
+    FROM OSH_ICU
+),
+
 -- Flags if the preceding (conceptually the pre-transfer) ICU admission, in case there is one, is preceded by a long hospital stay
 OSH_ICU_LONG_PREVIOUS_HADM AS (
     SELECT I.VtfId_LopNr,
@@ -192,9 +204,10 @@ OSH_HADM_FLAG AS (
 OSH_ICU_FLAG AS (
     SELECT
         T_CONT_ICU_ID,
-        MAX(OSH_ICU_FLAG) AS OSH_ICU_FLAG
-    FROM OSH_ICU
-    GROUP BY T_CONT_ICU_ID
+        OSH_ICU_FLAG,
+        Primary_VtfId_LopNr
+    FROM OSH_ICU_RANKED
+    WHERE rn = 1
 ),
 
 PRE_ICU_SAME_HOSP_HADM_FLAG AS (
@@ -219,30 +232,56 @@ Q AS (
         I.T_CONT_ICU_ID,
         I.LopNr,
         I.DX_GROUP,
-        I.AvdNamn,
-        I.InskrTidpunkt / 86400 AS IVA_INDATUM,
+        I.AvdNamn as Tertiary_ICU_name,
+        I.InskrTidpunkt / 86400 AS ICU_ADM_DATE,
         I.VtfId_LopNr,
         I.HADM_ID,
         P.Alder as age,
+        CASE WHEN P.Kon = '1' THEN 0 ELSE 1 END AS sex_female,
+        P.Sjukhus,
         ER.OSH_ER_FLAG,
         HO.OSH_HADM_FLAG,
         ICU.OSH_ICU_FLAG,
+        ICU.Primary_VtfId_LopNr,
         PRE.PRE_ICU_SAME_HOSP_HADM_FLAG,
         LON.ANY_LONG_CONT_HADM_FLAG,
-        S.sir_consciousness_level,
-        S.SAPS_unconcious,
-        S.SAPS_obtunded,
-        S.SAPS_total_score,
-        S.SAPS_AMV,
-        S.SAPS_hypotension,
-        S.SAPS_acidosis,
-        S.SAPS_hypothermia
+        ST.sir_consciousness_level AS tertiary_sir_consciousness_level,
+        ST.SAPS_unconcious AS tertiary_SAPS_unconcious,
+        ST.SAPS_obtunded AS tertiary_SAPS_obtunded,
+        ST.SAPS_total_score AS tertiary_SAPS_total_score,
+        ST.SAPS_AMV AS tertiary_SAPS_AMV,
+        ST.SAPS_hypotension AS tertiary_SAPS_hypotension,
+        ST.SAPS_acidosis AS tertiary_SAPS_acidosis,
+        ST.SAPS_hypothermia AS tertiary_SAPS_hypothermia,
+        ST.SAPS_max_temp AS tertiary_SAPS_max_temp,
+        ST.SAPS_hypertension AS tertiary_SAPS_hypertension,
+        ST.SAPS_min_SBP as tertiary_SAPS_min_SBP,
+        ST.SAPS_max_HR as tertiary_SAPS_max_HR,
+        SP.sir_consciousness_level AS primary_sir_consciousness_level,
+        SP.SAPS_unconcious AS primary_SAPS_unconcious,
+        SP.SAPS_obtunded AS primary_SAPS_obtunded,
+        SP.SAPS_total_score AS primary_SAPS_total_score,
+        SP.SAPS_AMV AS primary_SAPS_AMV,
+        SP.SAPS_hypotension AS primary_SAPS_hypotension,
+        SP.SAPS_acidosis AS primary_SAPS_acidosis,
+        SP.SAPS_hypothermia AS primary_SAPS_hypothermia,
+        SP.SAPS_max_temp AS primary_SAPS_max_temp,
+        SP.SAPS_hypertension AS primary_SAPS_hypertension,
+        SP.SAPS_min_SBP as primary_SAPS_min_SBP,
+        SP.SAPS_max_HR as primary_SAPS_max_HR,
+        DAOH90.DAOH_90,
+        DAOH180.DAOH_180,
+        DORS.DODSDAT_ROUND_UP
     FROM T_CONT_ICU_ADM_MAIN_DX_PRUNED_FIRST I
     LEFT JOIN OSH_ER_FLAG ER ON I.T_CONT_ICU_ID = ER.T_CONT_ICU_ID
     LEFT JOIN OSH_HADM_FLAG HO ON I.T_CONT_ICU_ID = HO.T_CONT_ICU_ID
     LEFT JOIN OSH_ICU_FLAG ICU ON I.T_CONT_ICU_ID = ICU.T_CONT_ICU_ID
     LEFT JOIN PRE_ICU_SAME_HOSP_HADM_FLAG PRE ON I.T_CONT_ICU_ID = PRE.T_CONT_ICU_ID
     LEFT JOIN ANY_LONG_CONT_HADM_FLAG LON ON I.T_CONT_ICU_ID = LON.T_CONT_ICU_ID
-    LEFT JOIN DESCRIPTIVE_SIR S ON I.VtfId_LopNr = S.VtfId_LopNr
+    LEFT JOIN DESCRIPTIVE_SIR ST ON I.VtfId_LopNr = ST.VtfId_LopNr
+    LEFT JOIN DESCRIPTIVE_SIR SP ON ICU.Primary_VtfId_LopNr = SP.VtfId_LopNr
     LEFT JOIN PAR_HADM P ON I.HADM_ID = P.HADM_ID
+    LEFT JOIN DAOH_90 DAOH90 ON I.VtfId_LopNr = DAOH90.VtfId_LopNr
+    LEFT JOIN DAOH_180 DAOH180 ON I.VtfId_LopNr = DAOH180.VtfId_LopNr
+    LEFT JOIN PROCESSED_DORS DORS ON I.LopNr = DORS.LopNr 
 )
