@@ -6,7 +6,7 @@ T_CONT_ICU_ADM_MAIN_DX_PRUNED AS (
     WHERE AvdNamn NOT IN ('KS/THIVA', 'KS ECMO', 'Astrid Lindgren', 'Uppsala BRIVA', 'Uppsala TIVA', 'Uppsala BIVA', 'SU/TIVA', 'Linköping BRIVA', 'Lund - BIVA', 'Umeå - Thorax')
     --AND T.InskrTidpunkt <= 1719791940 -- ICU admits prior 2024-06-30 23:59 (to allow for 180 DAOH)
     --AND T.InskrTidpunkt >= 1483228800 -- ICU admits after 2017-01-01 00:00 (1451606400 would be 1/1/2016)
-    AND T.DX_GROUP IN ("ASAH", "TBI", "AIS", "ICH")
+    AND T.DX_GROUP IN ("ASAH", "TBI", "AIS", "ICH", "ABM", "SDH")
 ),
 
 T_CONT_ICU_ADM_MAIN_DX_PRUNED_FIRST AS (
@@ -233,7 +233,8 @@ Q AS (
         I.LopNr,
         I.DX_GROUP,
         I.AvdNamn as Tertiary_ICU_name,
-        I.InskrTidpunkt / 86400 AS ICU_ADM_DATE,
+        I.InskrTidpunkt AS TERTIARY_ICU_ADM_TIME,
+        I.InskrTidpunkt / 86400 AS TERTIARY_ICU_ADM_DATE,
         I.VtfId_LopNr,
         I.HADM_ID,
         P.Alder as age,
@@ -243,6 +244,7 @@ Q AS (
         HO.OSH_HADM_FLAG,
         ICU.OSH_ICU_FLAG,
         ICU.Primary_VtfId_LopNr,
+        S.InskrTidpunkt AS PRIMARY_ICU_ADM_TIME,
         PRE.PRE_ICU_SAME_HOSP_HADM_FLAG,
         LON.ANY_LONG_CONT_HADM_FLAG,
         ST.sir_consciousness_level AS tertiary_sir_consciousness_level,
@@ -284,4 +286,5 @@ Q AS (
     LEFT JOIN DAOH_90 DAOH90 ON I.VtfId_LopNr = DAOH90.VtfId_LopNr
     LEFT JOIN DAOH_180 DAOH180 ON I.VtfId_LopNr = DAOH180.VtfId_LopNr
     LEFT JOIN PROCESSED_DORS DORS ON I.LopNr = DORS.LopNr 
+    LEFT JOIN SIR_BASDATA S ON ICU.Primary_VtfId_LopNr = S.VtfId_LopNr
 )
