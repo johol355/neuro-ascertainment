@@ -271,6 +271,9 @@ Q AS (
         SP.SAPS_hypertension AS primary_SAPS_hypertension,
         SP.SAPS_min_SBP as primary_SAPS_min_SBP,
         SP.SAPS_max_HR as primary_SAPS_max_HR,
+        SAPS.SAPS3_TidPaSjukhus,
+        SAPS.SAPS3_Vardplats,
+        SAPS.SAPS3_OperationsTyp
         DAOH90.DAOH_90,
         DAOH180.DAOH_180,
         DORS.DODSDAT_ROUND_UP
@@ -287,4 +290,5 @@ Q AS (
     LEFT JOIN DAOH_180 DAOH180 ON I.VtfId_LopNr = DAOH180.VtfId_LopNr
     LEFT JOIN PROCESSED_DORS DORS ON I.LopNr = DORS.LopNr 
     LEFT JOIN SIR_BASDATA S ON ICU.Primary_VtfId_LopNr = S.VtfId_LopNr
+    LEFT JOIN SIR_SAPS3 SAPS ON ICU.Primary_VtfId_LopNr = SAPS.VtfId_LopNr
 )
