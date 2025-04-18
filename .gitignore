@@ -7,3 +7,4 @@
 /sql-queries/__pycache__/
 *.DS_Store
 *.Rhistory
+/sql-queries/diagnosis_flowcharts_files
