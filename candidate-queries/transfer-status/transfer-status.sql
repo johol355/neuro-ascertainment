@@ -273,7 +273,7 @@ Q AS (
         SP.SAPS_max_HR as primary_SAPS_max_HR,
         SAPS.SAPS3_TidPaSjukhus,
         SAPS.SAPS3_Vardplats,
-        SAPS.SAPS3_OperationsTyp
+        SAPS.SAPS3_OperationsTyp,
         DAOH90.DAOH_90,
         DAOH180.DAOH_180,
         DORS.DODSDAT_ROUND_UP
