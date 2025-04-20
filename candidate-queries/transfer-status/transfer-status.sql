@@ -6,7 +6,7 @@ T_CONT_ICU_ADM_MAIN_DX_PRUNED AS (
     WHERE AvdNamn NOT IN ('KS/THIVA', 'KS ECMO', 'Astrid Lindgren', 'Uppsala BRIVA', 'Uppsala TIVA', 'Uppsala BIVA', 'SU/TIVA', 'Linköping BRIVA', 'Lund - BIVA', 'Umeå - Thorax')
     --AND T.InskrTidpunkt <= 1719791940 -- ICU admits prior 2024-06-30 23:59 (to allow for 180 DAOH)
     --AND T.InskrTidpunkt >= 1483228800 -- ICU admits after 2017-01-01 00:00 (1451606400 would be 1/1/2016)
-    AND T.DX_GROUP IN ("ASAH", "TBI", "AIS", "ICH", "ABM", "SDH")
+    AND T.DX_GROUP IN ("ASAH", "TBI", "AIS", "ICH")
 ),
 
 T_CONT_ICU_ADM_MAIN_DX_PRUNED_FIRST AS (
@@ -244,7 +244,39 @@ Q AS (
         HO.OSH_HADM_FLAG,
         ICU.OSH_ICU_FLAG,
         ICU.Primary_VtfId_LopNr,
-        S.InskrTidpunkt AS PRIMARY_ICU_ADM_TIME,
+
+        P_BASDATA.InskrTidpunkt AS PRIMARY_ICU_ADM_TIME,
+        P_BASDATA.Akutinlaggning AS PRIMARY_ICU_ADM_ACUTE,
+        P_BASDATA.Opererad AS PRIMARY_ICU_SURGERY,
+        P_BASDATA.VardTidMinuter AS PRIMARY_ICU_ICU_TIME,
+        P_BASDATA.UtskrivningsOrsak AS PRIMARY_ICU_DSC_REASON,
+        P_BASDATA.AnkomstVag AS PRIMARY_ICU_ADM_ROUTE,
+        P_BASDATA.InskrTidpunkt AS PRIMARY_ICU_ADM_TIME,
+        P_BASDATA.Akutinlaggning AS PRIMARY_ICU_ADM_ACUTE,
+        P_BASDATA.Opererad AS PRIMARY_ICU_SURGERY,
+        P_BASDATA.VardTidMinuter AS PRIMARY_ICU_ICU_TIME,
+        P_BASDATA.UtskrivningsOrsak AS PRIMARY_ICU_DSC_REASON,
+        P_BASDATA.AnkomstVag AS PRIMARY_ICU_ADM_ROUTE, 
+        PSAPS.SAPS3_TidPaSjukhus AS PRIMARY_ICU_SAPS_HOSP_DAYS,
+        PSAPS.SAPS3_Vardplats AS PRIMARY_ICU_SAPS_ADM_ROUTE,
+        PSAPS.SAPS3_OperationsTyp AS PRIMARY_ICU_SAPS_SURGERY_TYPE,
+
+        T_BASDATA.InskrTidpunkt AS TERTIARY_ICU_ADM_TIME,
+        T_BASDATA.Akutinlaggning AS TERTIARY_ICU_ADM_ACUTE,
+        T_BASDATA.Opererad AS TERTIARY_ICU_SURGERY,
+        T_BASDATA.VardTidMinuter AS TERTIARY_ICU_ICU_TIME,
+        T_BASDATA.UtskrivningsOrsak AS TERTIARY_ICU_DSC_REASON,
+        T_BASDATA.AnkomstVag AS TERTIARY_ICU_ADM_ROUTE,
+        T_BASDATA.InskrTidpunkt AS TERTIARY_ICU_ADM_TIME,
+        T_BASDATA.Akutinlaggning AS TERTIARY_ICU_ADM_ACUTE,
+        T_BASDATA.Opererad AS TERTIARY_ICU_SURGERY,
+        T_BASDATA.VardTidMinuter AS TERTIARY_ICU_ICU_TIME,
+        T_BASDATA.UtskrivningsOrsak AS TERTIARY_ICU_DSC_REASON,
+        T_BASDATA.AnkomstVag AS TERTIARY_ICU_ADM_ROUTE, 
+        TSAPS.SAPS3_TidPaSjukhus AS TERTIARY_ICU_SAPS_HOSP_DAYS,
+        TSAPS.SAPS3_Vardplats AS TERTIARY_ICU_SAPS_ADM_ROUTE,
+        TSAPS.SAPS3_OperationsTyp AS TERTIARY_ICU_SAPS_SURGERY_TYPE,
+
         PRE.PRE_ICU_SAME_HOSP_HADM_FLAG,
         LON.ANY_LONG_CONT_HADM_FLAG,
         ST.sir_consciousness_level AS tertiary_sir_consciousness_level,
@@ -259,6 +291,9 @@ Q AS (
         ST.SAPS_hypertension AS tertiary_SAPS_hypertension,
         ST.SAPS_min_SBP as tertiary_SAPS_min_SBP,
         ST.SAPS_max_HR as tertiary_SAPS_max_HR,
+        ST.icu_admit_afterhours AS tertiary_icu_admit_afterhours,
+        ST.icu_admit_daytime AS tertiary_icu_admit_daytime,
+        ST.icu_admit_nighttime AS tertiary_icu_admit_nighttime,
         SP.sir_consciousness_level AS primary_sir_consciousness_level,
         SP.SAPS_unconcious AS primary_SAPS_unconcious,
         SP.SAPS_obtunded AS primary_SAPS_obtunded,
@@ -269,11 +304,14 @@ Q AS (
         SP.SAPS_hypothermia AS primary_SAPS_hypothermia,
         SP.SAPS_max_temp AS primary_SAPS_max_temp,
         SP.SAPS_hypertension AS primary_SAPS_hypertension,
-        SP.SAPS_min_SBP as primary_SAPS_min_SBP,
-        SP.SAPS_max_HR as primary_SAPS_max_HR,
-        SAPS.SAPS3_TidPaSjukhus,
-        SAPS.SAPS3_Vardplats,
-        SAPS.SAPS3_OperationsTyp,
+        SP.SAPS_min_SBP AS primary_SAPS_min_SBP,
+        SP.SAPS_max_HR AS primary_SAPS_max_HR,
+        SP.icu_admit_afterhours AS primary_icu_admit_afterhours,
+        SP.icu_admit_daytime AS primary_icu_admit_daytime,
+        SP.icu_admit_nighttime AS primary_icu_admit_nighttime,
+        PSAPS.SAPS3_TidPaSjukhus,
+        PSAPS.SAPS3_Vardplats,
+        PSAPS.SAPS3_OperationsTyp,
         DAOH90.DAOH_90,
         DAOH180.DAOH_180,
         DORS.DODSDAT_ROUND_UP
@@ -289,6 +327,9 @@ Q AS (
     LEFT JOIN DAOH_90 DAOH90 ON I.VtfId_LopNr = DAOH90.VtfId_LopNr
     LEFT JOIN DAOH_180 DAOH180 ON I.VtfId_LopNr = DAOH180.VtfId_LopNr
     LEFT JOIN PROCESSED_DORS DORS ON I.LopNr = DORS.LopNr 
-    LEFT JOIN SIR_BASDATA S ON ICU.Primary_VtfId_LopNr = S.VtfId_LopNr
-    LEFT JOIN SIR_SAPS3 SAPS ON ICU.Primary_VtfId_LopNr = SAPS.VtfId_LopNr
+    LEFT JOIN SIR_BASDATA P_BASDATA ON ICU.Primary_VtfId_LopNr = P_BASDATA.VtfId_LopNr
+    LEFT JOIN SIR_BASDATA T_BASDATA ON I.VtfId_LopNr = T_BASDATA.VtfId_LopNr
+    LEFT JOIN SIR_SAPS3 PSAPS ON ICU.Primary_VtfId_LopNr = PSAPS.VtfId_LopNr
+    LEFT JOIN SIR_SAPS3 TSAPS ON I.VtfId_LopNr = TSAPS.VtfId_LopNr
+
 )
