@@ -519,7 +519,7 @@ TRANSFERS AS (
         S.SIR_PAR_OFFSET_TIGHT,
         S.OREBRO_INTERNAL,
         S.DX_GROUP
-    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX S 
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_RANKED S 
 ),
 
 --------------------------------------------------------------------------------
