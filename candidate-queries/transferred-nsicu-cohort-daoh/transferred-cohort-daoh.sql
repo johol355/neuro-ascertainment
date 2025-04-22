@@ -1,22 +1,64 @@
--- PAR_HADM is a redefined PAR table adding a unique HADM_ID to each admission
+-- OUTLINE OF QUERY
+-- 1. Define PAR_HADM as only PAR admits at tertiary centers
+-- 2. Define all SIR admits at primary ICUs
+-- 3. Match all PAR_HADM on SIR admits via Patient ID (LopNr),
+--      this will give irrelevant matches (from years back)
+--      as well.
+-- 4. Create columns PAR_SIR_OFFSET and, more importantly,
+--      PAR_SIR_OFFSET_TIGHT, that gives you the number of 
+--      calendar days between the SIR dsc and PAR adm.
+--      The _TIGHT column only allows the value to be -1 or 1
+--      if the dsc is late/early in the day respectively.
+-- 5. Find and flag Örebro SIR - Örebro PAR matches in OREBRO_INTERNAL
+--      to be able to get rid of these later
+-- 6. Add diagnostic data, limited to a few neuro ICU dx
+-- 7. 
+
+
+-- Alla SIR på PRICU
+-- Matcha med tert PAR, else NA
+-- (Flag 1: Par admit relative sir dsc, behålla 0 och -1 om sirdsc kl 00-06, +1 om sirdsc 18-24, else NA)
+-- (Flag 2: Örebro-Örebro)
+-- Lägg på DX på varje Par admit
+-- (Flag 3: DX ranking )
+-- lägg på geodata
+-- lägg på flygplatse
+-- lägg på metar
+-- lägg på hems
+
+-- flowchart: flag 1 if not -1/0/+1 discard + select MIN(DX_RANK) -> some vtfid has multirow
+-- flag 2 if true discard
+-- keep only PRICU dsc latest within patient 
+
+--- PAR_HADM is a redefined PAR table adding a unique HADM_ID to each admission
 -- Keep only admissions where the patient was >= 18 yrs at admission
 -- Keep only admissions after 2010/01/01
+-- Keep only admissions at a tertitiary center (inlcunding Örebro from 2014-01-01)
 WITH PAR_HADM AS (
     SELECT *,
            ROW_NUMBER() OVER ( 
                ORDER BY LopNr,
                         INDATUM,
                         UTDATUM,
-                        CASE WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002') THEN 0 ELSE 1 END
+                        CASE 
+                           WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002', '55010') 
+                           THEN 0 ELSE 1 
+                        END
            ) AS HADM_ID
     FROM PAR
-    WHERE 
-        ALDER >= 18
-        AND INDATUM >= 14610 -- This is 2010/01/01
-)
-,
+    WHERE ALDER >= 18
+    AND (
+            (INDATUM >= 14610 AND SJUKHUS IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002'))
+        OR (SJUKHUS = '55010' AND INDATUM > 16071)
+    )
+),
 
--- This CTE calculates days since last discharge date among all of the patients previous admissions (or actually: all admissions with an earlier admission date)
+------------------------------------------------------------------------------
+-- CTE PAR_HADM_LAST_DSC:
+-- Calculates days since last discharge for patients who have a previous 
+-- admission
+------------------------------------------------------------------------------
+
 PAR_HADM_LAST_DSC AS (
     SELECT
         *,
@@ -24,21 +66,33 @@ PAR_HADM_LAST_DSC AS (
     FROM PAR_HADM
 ),
 
--- This CTE flags new admissions and assigns identification numbers to coherent PAR_HADMs
+------------------------------------------------------------------------------
+-- CTE PAR_HADM_CONT:
+-- Flags the occurrence of a new admission to hospital if re-admission date is 
+-- more than 1 day after previous discharge. 
+-- Using this, a unique ID for each coherent hospital admission is created.
+------------------------------------------------------------------------------
+
 PAR_HADM_CONT AS (
-    SELECT
-        *,
+    SELECT *,
         CASE
             WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1
             ELSE 0
         END AS ADMISSION_FLAG,
-        -- The following bit sums all "admission flags" and adds it do patient id * 1000 to create a unique hospital admission id
         SUM(CASE WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1 ELSE 0 END) 
-        OVER (PARTITION BY LopNr ROWS UNBOUNDED PRECEDING) + LopNr * 1000 AS CONT_HADM_ID
+            OVER (PARTITION BY LopNr ORDER BY INDATUM ROWS UNBOUNDED PRECEDING) AS AdmissionSequence,
+        -- Explicit identifier combining patient and admission sequence:
+        LopNr || '-CONT_PAR_ADM-' || SUM(CASE WHEN DAYS_SINCE_LAST_DSC IS NULL OR DAYS_SINCE_LAST_DSC > 1 THEN 1 ELSE 0 END)
+            OVER (PARTITION BY LopNr ORDER BY INDATUM ROWS UNBOUNDED PRECEDING) AS CONT_HADM_ID
     FROM PAR_HADM_LAST_DSC
 ),
 
--- This CTE summarizes coherent PAR_HADMs and shows its constituents (individual PAR HADMs)
+------------------------------------------------------------------------------
+-- CTE PAR_HADM_CONT_DATES:
+-- Summarises coherent hospital admissions and shows its constituents (i.e. 
+-- the included HADM_ID's for each CONT_HADM_ID)
+------------------------------------------------------------------------------
+
 PAR_HADM_CONT_DATES AS (
     SELECT
         LopNr,
@@ -58,12 +112,13 @@ PR_ICU_ADMISSIONS AS (
     SELECT
         S.VtfId_LopNr,
         S.LopNr,
-        S.InskrTidPunkt,
-        S.UtskrTidPunkt,
-        S.AvdNamn
+        S.InskrTidpunkt,
+        S.UtskrTidpunkt,
+        S.AvdNamn,
+        S.Sjukhus
     FROM SIR_BASDATA S
-    WHERE S.AvdNamn NOT IN 
-        ('S-CIVA',
+    WHERE ((S.AvdNamn NOT IN (
+        'S-CIVA',
         'S-NIVA',
         'KS/THIVA',
         'KS ECMO',
@@ -84,52 +139,64 @@ PR_ICU_ADMISSIONS AS (
         'Uppsala TIVA',
         'Uppsala BIVA',
         'Uppsala NIVA'
-        )
-    AND VardTidMinuter < 1440
+        )))
 ),
 
--- In K_ICU_ADMISSIONS_MATCHED_WITH_PAR all ICU admissions in 
--- K_ICU_ADMISSIONS are matched (by left join) with PAR admissions in PAR_HADM fulfilling the criteria:
--- PAR admission at a tertiary hospital
--- PAR admission starting from +/-1 days relative to ICU admission
--- If no PAR admission matching the SIR admission the latter will drop out
--- If multiple PAR admissions fulfill matching criteria, multiple rows will be returned for that SIR admission
-PR_ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
+-- Match SIR admits with PAR admits at tertiary centers
+-- Creates 3 columns:
+--  SIR_PAR_OFFSET, the number of calendar days between SIR dsc and PAR adm
+--  SIR_PAR_OFFSET, the same as above but truncated at (-1,1) with the
+--      additional rule that admits the day after SIR dsc must have SIR dsc in the evening
+--      and vice versa.
+--  OREBRO_INTERNAL, since Örebro acts both as a primary and tertiary center,
+--      depending on case severity, "internal" matches between
+--      IVAUSÖ and Örebro in PAR are flagged
+ICU_ADMISSIONS_MATCHED_WITH_PAR AS (
     SELECT 
-        PR.VtfId_LopNr,
+        S.VtfId_LopNr,
         P.HADM_ID,
-        PR.LopNr,
-        PR.InskrTidPunkt,
-        PR.UtskrTidPunkt,
-        PR.AvdNamn,
+        S.LopNr,
+        S.InskrTidpunkt,
+        S.UtskrTidpunkt,
+        S.AvdNamn,
         P.INDATUM,
         P.UTDATUM,
+        P.SJUKHUS,
         P.MVO,
-        P.SJUKHUS
-    FROM PR_ICU_ADMISSIONS PR
-    LEFT JOIN PAR_HADM P ON PR.LopNr == P.LopNr
-    WHERE P.INDATUM - PR.UtskrTidPunkt / 86400 IN (-1, 0, 1)
-    AND P.Sjukhus IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
+        S.UtskrTidpunkt/86400 - P.INDATUM AS SIR_PAR_OFFSET,
+        CASE 
+            WHEN S.UtskrTidpunkt/86400 - P.INDATUM = 0 THEN 0
+            WHEN S.UtskrTidpunkt/86400 - P.INDATUM = 1 
+                AND strftime('%H', datetime(S.UtskrTidpunkt, 'unixepoch')) BETWEEN '00' AND '06' THEN 1
+            WHEN S.UtskrTidpunkt/86400 - P.INDATUM = -1 
+                AND strftime('%H', datetime(S.UtskrTidpunkt, 'unixepoch')) BETWEEN '18' AND '23' THEN -1
+            ELSE NULL
+        END AS SIR_PAR_OFFSET_TIGHT,
+        CASE
+            WHEN S.AvdNamn IN ('IVAUSÖ', 'Örebro - Thorax') AND P.SJUKHUS = 55010 THEN 1 ELSE 0 END AS OREBRO_INTERNAL
+    FROM PR_ICU_ADMISSIONS S
+    LEFT JOIN PAR_HADM P ON S.LopNr == P.LopNr
 ),
 
--- A set of diagnoses will be filtered on specific criteria
--- aSAH
+----------------------------------------------------------------------------
+-- Creation of CTE's for each diagnosis
+------------------------------------------------------------------------------
+-- Each of the diagnosis-groups is subdivided into a CTE called {dx}
+------------------------------------------------------------------------------
+
+-- aSAH ----------------------------------------------------------------------
+
 asah AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr,
-        P.Alder
+        P.HADM_ID
     FROM
         PAR_HADM P
     LEFT JOIN
         DORS D ON P.LopNr = D.LopNr
-    WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-          AND (
+    WHERE (
             (
-                (P.Diagnos LIKE "I60%"
-                OR P.Diagnos LIKE "I671%"
-                OR P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%")  -- I671 is included: If you are sick enough to get admitted to an ICU, it is still a relevant dx
+                (P.Diagnos LIKE "I60%" -- Note the placement of the wildcard, i.e. the regex will search for the main diagnosis
+                OR ((P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%") AND P.Diagnos NOT LIKE "I671%"))  -- I671 is NOT included
                 AND P.Diagnos NOT LIKE "%S06%")
 
           OR (P.Diagnos LIKE "I60%" AND P.Diagnos LIKE "%S06%" AND (P.Op LIKE "%AAC00%" OR P.Op LIKE "%AAL00%"))
@@ -142,21 +209,32 @@ asah AS (
                 AND JULIANDAY(strftime('%Y-%m-%d', substr(D.DODSDAT, 1, 4) || '-' || substr(D.DODSDAT, 5, 2) || '-' || substr(D.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(P.INDATUM * 86400, 'unixepoch')) <= 30
                 AND P.Diagnos NOT LIKE "%S06%"
                 AND P.Diagnos NOT LIKE "%Q28%"
-                AND P.Diagnos NOT LIKE "I671%"
             )
         )
 ),
 
--- TBI
-tbi AS (
+-- Non-ruptured aneurysm -----------------------------------------------------
+ane AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND 
+        P.Diagnos LIKE "I671%"
+    AND
+        P.Diagnos NOT LIKE "%I60%" -- To decrease risk of mixing in asah
+),
+
+------------------------------------------------------------------------------
+
+-- TBI -----------------------------------------------------------------------
+
+tbi AS (
+    SELECT
+        P.HADM_ID
+    FROM
+        PAR_HADM P
+    WHERE
             ((P.Diagnos LIKE "S06%") OR
             ((P.Diagnos LIKE "S020%" OR
              P.Diagnos LIKE "S021%" OR
@@ -164,20 +242,21 @@ tbi AS (
              P.Diagnos LIKE "S029%" OR
              P.Diagnos LIKE "S071%" OR
              P.Diagnos LIKE "S04%" OR
-             P.Diagnos LIKE "S12%") AND (P.Diagnos LIKE "%S06%")))
-)
-,
+             P.Diagnos LIKE "S09%" OR
+             P.Diagnos LIKE "S12%"))) -- Previously had "AND (P.Diagnos LIKE "%S06%")""
+),
 
--- Cerebral venous thrombosis
+------------------------------------------------------------------------------
+
+-- Cerebral venous thrombosis ------------------------------------------------
+
 cvt AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (P.Diagnos LIKE "G08%"
+    (P.Diagnos LIKE "G08%"
         OR P.Diagnos LIKE "I676%"
         OR P.Diagnos LIKE "I636%"
         OR P.Diagnos LIKE "O225%"
@@ -186,65 +265,67 @@ cvt AS (
         AND (P.Op NOT LIKE "%AAC00%")
         AND (P.Op NOT LIKE "%AAL00%")
         AND (P.Diagnos NOT LIKE "%I60%")
+),
 
-)
-,
+------------------------------------------------------------------------------
 
--- ICH
+-- ICH -----------------------------------------------------------------------
+
 ich AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (P.Diagnos LIKE "I61%")
+        (P.Diagnos LIKE "I61%")
         -- A few likely aSAH that fulfill the above criteria will need to be filtered out as such:
         AND (P.Op NOT LIKE "%AAC00%")
         AND (P.Op NOT LIKE "%AAL00%")
 ),
 
--- AVM
+------------------------------------------------------------------------------
+
+-- AVM -----------------------------------------------------------------------
+
 avm AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (P.Diagnos LIKE "Q28%")
+        (P.Diagnos LIKE "Q28%")
         AND (P.Op NOT LIKE "%AAL00%")
         AND (P.Op NOT LIKE "%AAC00%")
 ),
 
--- Acute ischemic stroke
+------------------------------------------------------------------------------
+
+-- Acute ischemic stroke -----------------------------------------------------
+
 ais AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (P.Diagnos LIKE "I63%")
+        (P.Diagnos LIKE "I63%")
         AND (P.Diagnos NOT LIKE "I636%")
         -- a few likely aSAH that fulfill the above criteria will need to be filtered out as such:
         AND (P.Op NOT LIKE "%AAC00%")
         AND (P.Op NOT LIKE "%AAL00%")
 ),
 
--- Acute bacterial meningitis
+------------------------------------------------------------------------------
+
+-- Acute bacterial meningitis ------------------------------------------------
+
 abm AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
         FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE "G00%" OR
             P.Diagnos LIKE "A390%" OR
             -- Also include intracranial abcess and "abscess i skalle eller ryggradskanal"
@@ -253,16 +334,17 @@ abm AS (
         )
 ),
 
--- Encephalitis
+------------------------------------------------------------------------------
+
+-- Encephalitis --------------------------------------------------------------
+
 ence AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE "G04%" OR
             P.Diagnos LIKE "G05%" OR
             P.Diagnos LIKE "B004%" OR
@@ -271,32 +353,34 @@ ence AS (
         )
 ),
 
--- Status epilepticus
+------------------------------------------------------------------------------
+
+-- Status epilepticus --------------------------------------------------------
+
 se AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE "G41%" OR
             -- also include epilepsy
             P.Diagnos LIKE "G40%"
         )
 ),
 
--- "Isolated" cervical spine frx
+------------------------------------------------------------------------------
+
+-- "Isolated" cervical spine frx ---------------------------------------------
+
 cfx AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE 'S12%' OR
             P.Diagnos LIKE 'S13%' OR
             P.Diagnos LIKE 'S14%'
@@ -304,17 +388,22 @@ cfx AS (
         AND P.Diagnos NOT LIKE '%S06%'
 ),
 
--- Turns out there are loads of I62 (non traumatic SDH), many get evacuated, some have a traumatic sdh as secondary dx... let's pick the "clean"
--- Most get AD005 (evac chron sdh) or AD010 (evac acute sdh). Not sure it's reasonable to "split" on that.
+------------------------------------------------------------------------------
+
+-- SDH -----------------------------------------------------------------------
+
+-- Turns out there are loads of I62 (non traumatic SDH), many get evacuated, 
+-- some have a traumatic sdh as secondary dx... let's pick the "clean"
+-- Most get AD005 (evac chron sdh) or AD010 (evac acute sdh). 
+-- Not sure it's reasonable to "split" on that.
+
 sdh AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE 'I62%'
         )
         AND P.Diagnos NOT LIKE '%S06%'
@@ -323,16 +412,17 @@ sdh AS (
         AND P.Op NOT LIKE "%AAC00%"
 ),
 
--- "Isolated" hydrocephalus (shunt dysfunctions et al)
+------------------------------------------------------------------------------
+
+-- "Isolated" hydrocephalus (shunt dysfunctions et al) -----------------------
+
 hc AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE 'G91%'
         )
     -- several  likely aSAH that fulfill the above criteria will need to be filtered out as such:
@@ -340,16 +430,17 @@ hc AS (
     AND (P.Op NOT LIKE "%AAL00%")
 ),
 
---  tumors
+------------------------------------------------------------------------------
+
+--  Tumours ------------------------------------------------------------------
+
 tum AS (
     SELECT
-        P.HADM_ID,
-        P.LopNr
+        P.HADM_ID
     FROM
         PAR_HADM P
     WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
-        AND (
+        (
             P.Diagnos LIKE 'D43%'
             OR P.Diagnos LIKE 'C71%'
             OR P.Diagnos LIKE 'C793%'
@@ -360,92 +451,95 @@ tum AS (
         AND P.Op NOT LIKE "%AAC00%"
 ),
 
--- DX finds the diagnostic group for each entry in PAR_HADM. Note that one HADM
--- can have several diagnostic criteria fulfilled (although it is rare), therefore
--- there can be several rows for same admission
+------------------------------------------------------------------------------
+-- CTE DX:
+-- Finds the primary diagnostic group for each entry in PAR_HADM_CONT_DATES. 
+-- Note that one HADM could theoretically have several diagnostic criteria fulfilled (although 
+-- it is rare since the criteria are designed to define a PRIMARY diagnosis.)
+-- In practice, this only happens for patients that are diagnosed with
+-- ICH and die within 30 days and have their case of death assigned to ASAH
+-- This CTE will try to assign a PAR HADM with one main diagnosis.
+-- The CASE WHEN statement will identify the FIRST fulfilled diagnostic criteria only.
+-- Also note, that this CTE does not identify ANY secondary diagnosis. 
+------------------------------------------------------------------------------
+
 DX AS (
-    SELECT
+    SELECT DISTINCT
         P.HADM_ID,
+        P.CONT_HADM_ID,
         P.LopNr,
         P.Diagnos,
         CASE
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM asah) THEN 'ASAH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM avm) THEN 'AVM'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM ich) THEN 'ICH'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM tbi) THEN 'TBI'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM ais) THEN 'AIS'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM abm) THEN 'ABM'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM cvt) THEN 'CVT'
-            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ence) THEN 'ENC'
-            WHEN P.HADM_ID IN (SELECT HADM_ID FROM se) THEN 'SEP'
-            WHEN P.HADM_ID IN (SELECT HADM_ID FROM avm) THEN 'AVM'
-            WHEN P.HADM_ID IN (SELECT HADM_ID FROM cfx) THEN 'CFX'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM sdh) THEN 'SDH'
-            WHEN P.HADM_ID IN (SELECT HADM_ID FROM hc) THEN 'HC'
-            WHEN P.HADM_ID IN (SELECT HADM_ID FROM tum) THEN 'TUM'
             ELSE 'OTHER'
         END AS DX_GROUP
     FROM
-        PAR_HADM P
-    WHERE
-        P.SJUKHUS IN (11001, 11003, 51001, 21001, 64001, 12001, 41001, 41002)
+        PAR_HADM_CONT P
 ),
 
--- Create a window where the SIR-PAR matched cohort is joined (on
--- PAR admission ID) with the diagnostic group window (based on PAR dx)
-PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
+ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX AS (
     SELECT
-        PR.VtfId_LopNr,
-        PR.HADM_ID,
-        PR.LopNr,
-        PR.InskrTidPunkt,
-        PR.UtskrTidPunkt,
-        PR.AvdNamn,
-        PR.INDATUM,
-        PR.UTDATUM,
-        PR.MVO,
-        PR.SJUKHUS,
-        P.DIAGNOS,
-        P.OP,
+        T.*,
         D.DX_GROUP
-    FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR PR
-    LEFT JOIN DX D ON PR.HADM_ID = D.HADM_ID
-    LEFT JOIN PAR_HADM P ON PR.HADM_ID = P.HADM_ID
-)
-,
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR T
+    LEFT JOIN DX D ON T.HADM_ID = D.HADM_ID
+),
 
 -- PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY helps resolving tie situations
 -- where one SIR admission is associated with several PAR admissions.
 -- In this case the earliest (within the time window) admissions is chosen,
 -- if there still is a tie a hierarchical ordering of diagnosis will choose one admission only
-PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY AS (
+ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_RANKED AS (
     SELECT *,
-           ROW_NUMBER() OVER (
-               PARTITION BY VtfId_LopNr 
-               ORDER BY INDATUM, 
-                        CASE DX_GROUP
-                            WHEN 'TBI' THEN 1
-                            WHEN 'ASAH' THEN 2
-                            WHEN 'AIS' THEN 3
-                            WHEN 'ICH' THEN 4
-                            WHEN 'ABM' THEN 5
-                            WHEN 'CFX' THEN 6
-                            WHEN 'ENC' THEN 7
-                            WHEN 'TUM' THEN 8
-                            WHEN 'SEP' THEN 9
-                            WHEN 'HC' THEN 10
-                            ELSE 11 -- for any other value not specified
-                        END
-           ) AS DX_ORDER
-   FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
-   WHERE DX_GROUP != "OTHER"
+           CASE DX_GROUP
+               WHEN 'ASAH' THEN 1
+               WHEN 'ANE' THEN 2
+               WHEN 'AVM' THEN 3
+               WHEN 'ICH' THEN 4
+               WHEN 'TBI' THEN 5
+               WHEN 'AIS' THEN 6
+               WHEN 'ABM' THEN 7
+               WHEN 'CVT' THEN 8
+               WHEN 'ENC' THEN 9
+               WHEN 'SEP' THEN 10
+               WHEN 'CFX' THEN 11
+               WHEN 'SDH' THEN 12
+               WHEN 'HC'  THEN 13
+               WHEN 'TUM' THEN 14
+               ELSE 15
+           END AS DX_RANK
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX
 )
 ,
 
--- DESCRIPTIVE_SIR collects data from several SIR tables (including SAPS, SOFA) joined on SIR admission ID
+TRANSFERS AS (
+    SELECT
+        S.VtfId_LopNr,
+        S.HADM_ID AS TERTIARY_HADM_ID,
+        S.LopNr,
+        S.SIR_PAR_OFFSET,
+        S.SIR_PAR_OFFSET_TIGHT,
+        S.OREBRO_INTERNAL,
+        S.DX_GROUP
+    FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX S 
+),
+
+--------------------------------------------------------------------------------
+-- DESCRIPTIVE_SIR collects data from several SIR tables (including SAPS, SOFA) 
+-- joined on SIR admission ID
+--------------------------------------------------------------------------------
+
 DESCRIPTIVE_SIR AS (
    SELECT
     -----------------------------------------
-    ------------- DEMOGRAHPICS --------------
+    ------------- DEMOGRAPHICS --------------
     -----------------------------------------
         S.VtfId_LopNr,
         S.AvdNamn AS sir_icu_name,
@@ -454,13 +548,15 @@ DESCRIPTIVE_SIR AS (
             WHEN 'Länsdelssjukhu' THEN 'Community Hospital'
             WHEN 'Regionsjukhus' THEN 'University Hospital'
           END AS sir_hospital_type,
-        S.InskrTidPunkt AS sir_adm_time,
+        S.InskrTidpunkt AS sir_adm_time,
         S.UtskrTidPunkt AS sir_dsc_time,
         S.VardTidMinuter AS sir_total_time,
+        
     --- Height, weight, BMI ---
         S.Lengd AS admission_height,
         S.AnkIvaVikt AS admission_weight,
         S.AnkIvaVikt / (S.Lengd * S.Lengd) AS BMI,
+        
     --- DNR orders (in the SIR_BEGRANSNINGAR VtfId_LopNr are only present if there is a DNR order) --- 
         CASE WHEN S.VtfId_LopNr IN (SELECT VtfId_LopNr FROM SIR_BEGRANSNINGAR) THEN 1 ELSE 0 END AS DNR,
 
@@ -480,14 +576,14 @@ DESCRIPTIVE_SIR AS (
 
     --- After hours admit ---
         CASE
-            WHEN strftime('%H', datetime(S.InskrTidPunkt, 'unixepoch')) IN ("8","9","10","11","12","13","14","15","16") THEN 1 ELSE 0 END AS icu_admit_daytime,
+            WHEN strftime('%H', datetime(S.InskrTidpunkt, 'unixepoch')) IN ("8","9","10","11","12","13","14","15","16") THEN 1 ELSE 0 END AS icu_admit_daytime,
         CASE
-            WHEN strftime('%H', datetime(S.InskrTidPunkt, 'unixepoch')) IN ("22","23","00","01","02","03","04","05","06") THEN 1 ELSE 0 END AS icu_admit_nighttime,
+            WHEN strftime('%H', datetime(S.InskrTidpunkt, 'unixepoch')) IN ("22","23","00","01","02","03","04","05","06") THEN 1 ELSE 0 END AS icu_admit_nighttime,
         CASE
             WHEN (
-                strftime('%H', datetime(S.InskrTidPunkt, 'unixepoch')) NOT IN ("8","9","10","11","12","13","14","15","16")
+                strftime('%H', datetime(S.InskrTidpunkt, 'unixepoch')) NOT IN ("8","9","10","11","12","13","14","15","16")
                 OR 
-                strftime('%w', datetime(S.InskrTidPunkt, 'unixepoch')) IN ("0","6")
+                strftime('%w', datetime(S.InskrTidpunkt, 'unixepoch')) IN ("0","6")
             )
             THEN 1 ELSE 0 END AS icu_admit_afterhours
         ,
@@ -703,24 +799,6 @@ DESCRIPTIVE_SIR AS (
         SAPS.SAPS3_pHMin as SAPS_min_pH,
         SAPS.SAPS3_KroppstempMax as SAPS_max_temp,
 
-        --- SAPS3 scores excluding other component ---
-        ---- Excluding GCS
-        SAPS.SAPS3_score - 
-        (CASE
-            WHEN (SAPS.SAPS3_RLS85 IS NULL AND SAPS.SAPS3_GCS IS NULL) THEN 1
-            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('1', '2'))
-                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('13', '14', '15'))) THEN 1
-            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('3', '4'))
-                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('7', '8', '9', '10', '11', '12'))) THEN 2
-            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('5'))
-                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('6'))) THEN 7.5
-            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('6'))
-                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('5'))) THEN 10
-            WHEN ((SAPS.SAPS3_RLS85 IS NOT NULL AND SAPS.SAPS3_RLS85 IN ('7', '8'))
-                OR (SAPS.SAPS3_GCS IS NOT NULL AND SAPS.SAPS3_GCS IN ('3', '4'))) THEN 15
-            ELSE 0
-        END) AS SAPS_score_excluding_gcs,
-
         --- SAPS 3 acidosis (pH <7.25) ---
         CASE
             WHEN SAPS.SAPS3_pHMin < 7.25 THEN 1 
@@ -731,23 +809,8 @@ DESCRIPTIVE_SIR AS (
         CASE
             WHEN SAPS.SAPS3_KroppstempMax < 35 THEN 1 
             WHEN SAPS.SAPS3_KroppstempMax IS NULL THEN NULL
-            ELSE 0 END AS SAPS_hypothermia,
-
-        --- Outcomes ---
-    -- Crude 7d, 30d, 90d, 365d mortality from ICU admission
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 7 THEN 1 ELSE 0 END AS d7,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 30 THEN 1 ELSE 0 END AS d30,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 90 THEN 1 ELSE 0 END AS d90,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 180 THEN 1 ELSE 0 END AS d180,
-        CASE WHEN
-            JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) <= 365 THEN 1 ELSE 0 END AS d365,
- ---- Days alive from ICU  admission
-        JULIANDAY(strftime('%Y-%m-%d', substr(DO.DODSDAT, 1, 4) || '-' || substr(DO.DODSDAT, 5, 2) || '-' || substr(DO.DODSDAT, 7, 2) || ' 00:00:00')) - JULIANDAY(date(S.InskrTidPunkt, 'unixepoch')) AS days_alive,
-        DO.DODSDAT AS death_date
+            ELSE 0 END AS SAPS_hypothermia
+            
     FROM SIR_BASDATA S
     LEFT JOIN SIR_SAPS3 SAPS on S.VtfId_LopNr= SAPS.VtfId_LopNr
     LEFT JOIN (
@@ -762,8 +825,11 @@ DESCRIPTIVE_SIR AS (
     LEFT JOIN DORS DO ON S.LopNr = DO.LopNr
 ),
 
--- DESCRIPTIVE_SIR collects data from PAR and DORS (data on death date) on PAR_HADM id and in
+--------------------------------------------------------------------------------
+-- DESCRIPTIVE_PAR collects data from PAR and DORS (data on death date) on PAR_HADM id and in
 -- the case of death date data on patient ID + admission date in PAR.
+--------------------------------------------------------------------------------
+
 DESCRIPTIVE_PAR AS (
     SELECT
         P.HADM_ID,
@@ -777,13 +843,64 @@ DESCRIPTIVE_PAR AS (
                 WHEN '64001' THEN 'Norrlands universitetssjukhus'
                 WHEN '41001' THEN 'Universitetssjukhuset i Lund'
                 WHEN '41002' THEN 'Universitetssjukhuset i Lund'
+                WHEN '55010' THEN 'Universitetssjukhuset i Örebro'
                 ELSE P.Sjukhus -- If none of the above cases match, keep the original value
         END AS par_tertiary_center,
         CASE WHEN P.Kon = '1' THEN 0 ELSE 1 END AS sex_female
     FROM PAR_HADM P
 ),
 
-
+PROCESSED_DORS AS (
+  SELECT 
+    D.LopNr,
+    -- Keep the original date as a string but remove trailing zeroes to enable
+    -- future parsing as YMD YM and Y
+    CASE
+      WHEN SUBSTR(D.DODSDAT, -4, 2) = '00' THEN SUBSTR(D.DODSDAT, 1, 4) 
+      WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00' THEN SUBSTR(D.DODSDAT, 1, 6) 
+      ELSE D.DODSDAT END AS DODSDAT_CLEAN,
+    
+    -- Keep correct dates only
+    CASE
+      WHEN SUBSTR(D.DODSDAT, -2) != '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
+      ELSE NULL
+    END AS DODSDAT_DATE,
+    
+    -- Keep all dates but for incorrect dates, round to the 1st day of the observation period
+    CASE 
+      WHEN SUBSTR(D.DODSDAT, -4, 2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-01-01')
+      WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-01')
+      ELSE DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
+    END AS DODSDAT_ROUND_DOWN,
+    
+    -- Keep all date but for incorrect dates, round up to the last day of observation period
+    CASE 
+      WHEN SUBSTR(D.DODSDAT, -4, 4) = '0000'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-12-31')
+      WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-01', 'start of month', '+1 month', '-1 day')
+      ELSE DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
+    END AS DODSDAT_ROUND_UP,
+    
+        -- Keep all dates but for incorrect dates, round to july 1st for dates with 
+        -- YYYY0000 and to the 15th of the month for dates with YYYYMM00
+    CASE 
+      WHEN SUBSTR(D.DODSDAT, -4, 2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-07-01')
+      WHEN SUBSTR(D.DODSDAT, -4, 2) != '00' AND SUBSTR(D.DODSDAT, -2) = '00'
+      THEN DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-15')
+      ELSE DATE(SUBSTR(D.DODSDAT, 1, 4) || '-' || SUBSTR(D.DODSDAT, 5, 2) || '-' || SUBSTR(D.DODSDAT, 7, 2))
+    END AS DODSDAT_ROUND_MID,
+    
+    -- Add a flag for date with an error in formatting
+    CASE WHEN SUBSTR(D.DODSDAT, -2) = '00' THEN 1 ELSE 0 END AS ERROR_DATE
+    
+  FROM DORS D
+  LEFT JOIN DORS_AVI DA ON D.LopNr = DA.LopNr
+),
 
 -- DAOH_STEP_1_90, DAOH_STEP_2_90, DAOH_STEP_3_90 and finally DAOH_90 calculates "Days Alive and Out of Hospital",
 -- i.e. the number of hospital free days alive within a 90 day time period starting from a given ICU admission in SIR
@@ -889,7 +1006,7 @@ DAOH_90_STEP_3 AS (
 ),
 
 -- A CTE that gets the Hospital LOS for the relevant ADM GROUP above, i.e. the Hospital LOS from the ICU admission at hand
-H_LOS AS (
+DAOH_H_LOS AS (
     SELECT
         VtfId_LopNr,
         LopNr,
@@ -995,82 +1112,32 @@ DAOH_180 AS (
     GROUP BY VtfId_LopNr
 ),
 
--- The SUMMARY_TABLE joins PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY containing SIR admission ID, PAR data and DX
--- with DESCRIPTIVE_PAR and DESCRIPTIVE_SIR. Finally, only one PAR admission is matched with each
--- ICU admission based on the highest ranking DX (earliest + DX hierarchy). If a patient has multiple ICU admissions only the first is kept.
--- Keeping track of the earliest date where a SIR admit fulfills the criteria helps us filtering out (after grouping by LopNr) the latest ICU admit
--- prior to transfer that day, in case there are readmissions.
-
-SUMMARY_TABLE AS (
-    SELECT
-    PR.LopNr,
-    D.VtfId_LopNr,
-    P.HADM_ID,
-    P.par_tertiary_center,
-    PR.INDATUM as par_adm_date,
-    PR.UTDATUM as par_dsc_date,
-    P.sex_female,
-    P.age,
-    PR.DX_GROUP,
-    PR.DX_ORDER,
-    D.*,
-    D.d7,
-    D.d30,
-    D.d90,
-    D.d180,
-    D.d365,
-    D.days_alive,
-    COUNT() OVER (PARTITION BY LopNr) as rows_per_patient,
-    MIN(PR.INDATUM) OVER (PARTITION BY LopNr) as earliest_par_admit_date,
-    PR.INDATUM - D.sir_dsc_time/86400 as par_admit_relative_sir_dsc,
-    -- this ranks differnces between tertiary admit and pricu discharge. Ranked by: same day, icu dsc day before, icu dsc day after. Based on likeliness of being relevant.
-    ROW_NUMBER() OVER (PARTITION BY LopNr ORDER BY 
-        CASE 
-            WHEN PR.INDATUM - D.sir_dsc_time/86400 = 0 THEN 1
-            WHEN PR.INDATUM - D.sir_dsc_time/86400 = 1 THEN 2
-            WHEN PR.INDATUM - D.sir_dsc_time/86400 = -1 THEN 3
-            ELSE 4
-        END,
-        -- if tie: choose latest discharge on a day
-        D.sir_dsc_time DESC) AS icu_admit_rank
-
-FROM PR_ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_TIME_HIERARCHY PR
-LEFT JOIN DESCRIPTIVE_PAR P ON PR.HADM_ID = P.HADM_ID
-LEFT JOIN DESCRIPTIVE_SIR D ON PR.VtfId_LopNr = D.VtfId_LopNr
-WHERE DX_ORDER = 1
-),
-
--- This view of the SUMMARY_TABLE keeps only the first PRICU-PAR pair based on a comparison with the first possible PAR admission date
--- And the ICU admission ranking (trying to infer the most relevant PRICU admission for the transfer if there are several ICU admissions) 
-SUMMARY_TABLE_FIRST AS (
-    SELECT *
-    FROM SUMMARY_TABLE
-    WHERE par_adm_date = earliest_par_admit_date
-    GROUP BY LopNr HAVING MIN(icu_admit_rank)
-),
-
--- This view of SUMMARY_TABLE_FIRST discards all transfers with that are discharged from the PR ICU the day after PAR admission
--- if the PR ICU discharge hour is not 00:00 - 03:59. (Decreasing the risk of a false positive transfer going in the other direction.)
-SUMMARY_TABLE_FIRST_PRUNE_LATE AS (
-    SELECT *
-    FROM SUMMARY_TABLE_FIRST
-    WHERE par_admit_relative_sir_dsc != -1
-    UNION ALL
-    SELECT * 
-    FROM SUMMARY_TABLE_FIRST
-    WHERE par_admit_relative_sir_dsc = -1
-    AND strftime('%H', datetime(sir_dsc_time, 'unixepoch')) BETWEEN '00' AND '04'
-),
-
 FINAL AS (
     SELECT
+        T.*,
+        P.*,
         S.*,
-        L.HOSPITAL_LOS,
-        L.HOSPITAL_LOS_ALIVE,
+        DO.DODSDAT_ROUND_UP,
         DA90.DAOH_90,
-        DA180.DAOH_180
-    FROM SUMMARY_TABLE_FIRST_PRUNE_LATE S 
-    LEFT JOIN H_LOS L ON S.VtfId_LopNr = L.VtfId_LopNr
+        DA180.DAOH_180,
+        CASE 
+            WHEN DATE(DO.DODSDAT_ROUND_UP)
+                BETWEEN DATE(S.sir_dsc_time, 'unixepoch') 
+                AND DATE(S.sir_dsc_time, 'unixepoch', '+30 days')
+            THEN 1
+            ELSE 0
+           END AS MORTALITY_30D,
+        CASE 
+            WHEN DATE(DO.DODSDAT_ROUND_UP)
+                BETWEEN DATE(S.sir_dsc_time, 'unixepoch') 
+                AND DATE(S.sir_dsc_time, 'unixepoch', '+90 days')
+            THEN 1
+            ELSE 0
+           END AS MORTALITY_90D
+    FROM TRANSFERS T
+    LEFT JOIN DESCRIPTIVE_PAR P ON T.TERTIARY_HADM_ID = P.HADM_ID
+    LEFT JOIN DESCRIPTIVE_SIR S ON T.VtfId_LopNr = S.VtfId_LopNr
+    LEFT JOIN PROCESSED_DORS DO ON T.LopNr = DO.LopNr
     LEFT JOIN DAOH_90 DA90 ON S.VtfId_LopNr = DA90.VtfId_LopNr
     LEFT JOIN DAOH_180 DA180 ON S.VtfId_LopNr = DA180.VtfId_LopNr
 )
