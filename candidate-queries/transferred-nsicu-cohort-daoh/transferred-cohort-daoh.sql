@@ -1108,6 +1108,40 @@ FINAL AS (
         T.*,
         P.*,
         S.*,
+        S.SAPS_total_score - CASE
+            WHEN S.sir_consciousness_level = "I (GCS ≥13)" THEN 0
+            WHEN S.sir_consciousness_level = "II (GCS 7-12)" THEN 2
+            WHEN S.sir_consciousness_level = "III (GCS 6)" THEN 7
+            WHEN S.sir_consciousness_level = "IV (GCS 5)" THEN 10
+            WHEN S.sir_consciousness_level = "V (GCS ≤4)" THEN 15
+            ELSE NULL
+            END AS SAPS_score_minus_gcs,
+        S.SAPS_total_score - CASE
+            WHEN P.age < 40 THEN 0
+            WHEN P.age BETWEEN 40 AND 59 THEN 5
+            WHEN P.age BETWEEN 60 AND 69 THEN 9
+            WHEN P.age BETWEEN 70 AND 74 THEN 13
+            WHEN P.age BETWEEN 75 AND 79 THEN 15
+            WHEN P.age >= 80 THEN 18
+            ELSE NULL
+            END AS SAPS_score_minus_age,
+        S.SAPS_total_score - CASE  -- Age points
+            WHEN P.age < 40 THEN 0
+            WHEN P.age BETWEEN 40 AND 59 THEN 5
+            WHEN P.age BETWEEN 60 AND 69 THEN 9
+            WHEN P.age BETWEEN 70 AND 74 THEN 13
+            WHEN P.age BETWEEN 75 AND 79 THEN 15
+            WHEN P.age >= 80 THEN 18
+            ELSE NULL
+            END
+            - CASE  -- GCS points
+            WHEN S.sir_consciousness_level = "I (GCS ≥13)" THEN 0
+            WHEN S.sir_consciousness_level = "II (GCS 7-12)" THEN 2
+            WHEN S.sir_consciousness_level = "III (GCS 6)" THEN 7
+            WHEN S.sir_consciousness_level = "IV (GCS 5)" THEN 10
+            WHEN S.sir_consciousness_level = "V (GCS ≤4)" THEN 15
+            ELSE NULL
+            END AS SAPS_score_minus_age_and_gcs,
         DO.DODSDAT_ROUND_UP,
         DA90.DAOH_90,
         DA180.DAOH_180,

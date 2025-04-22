@@ -8,3 +8,4 @@
 *.DS_Store
 *.Rhistory
 /sql-queries/diagnosis_flowcharts_files
+.Rproj.user
