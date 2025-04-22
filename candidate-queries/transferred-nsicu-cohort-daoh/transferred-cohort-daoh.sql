@@ -19,7 +19,7 @@
 -- Filter out on SIR_OFFSET_TIGHT != -1,0,1
 -- Select lowest DX_RANK per SIR vtf
 -- Filter out on OREBRO_INTERNAL
--- Keep only PRICU dsc latest within patient
+-- Keep only PRICU dsc latest within patient LopNr
 
 --- PAR_HADM is a redefined PAR table adding a unique HADM_ID to each admission
 -- Keep only admissions where the patient was >= 18 yrs at admission
@@ -518,7 +518,8 @@ TRANSFERS AS (
         S.SIR_PAR_OFFSET,
         S.SIR_PAR_OFFSET_TIGHT,
         S.OREBRO_INTERNAL,
-        S.DX_GROUP
+        S.DX_GROUP,
+        S.DX_RANK
     FROM ICU_ADMISSIONS_MATCHED_WITH_PAR_WITH_DX_RANKED S 
 ),
 
