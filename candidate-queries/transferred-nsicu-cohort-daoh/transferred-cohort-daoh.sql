@@ -12,23 +12,14 @@
 -- 5. Find and flag Örebro SIR - Örebro PAR matches in OREBRO_INTERNAL
 --      to be able to get rid of these later
 -- 6. Add diagnostic data, limited to a few neuro ICU dx
--- 7. 
-
-
--- Alla SIR på PRICU
--- Matcha med tert PAR, else NA
--- (Flag 1: Par admit relative sir dsc, behålla 0 och -1 om sirdsc kl 00-06, +1 om sirdsc 18-24, else NA)
--- (Flag 2: Örebro-Örebro)
--- Lägg på DX på varje Par admit
--- (Flag 3: DX ranking )
--- lägg på geodata
--- lägg på flygplatse
--- lägg på metar
--- lägg på hems
-
--- flowchart: flag 1 if not -1/0/+1 discard + select MIN(DX_RANK) -> some vtfid has multirow
--- flag 2 if true discard
--- keep only PRICU dsc latest within patient 
+-- 7. Add clinical data per SIR ICU
+-- 8. Add outcome data per SIR ICU
+-- HOW TO USE FURTHER
+-- In a flow chart:
+-- Filter out on SIR_OFFSET_TIGHT != -1,0,1
+-- Select lowest DX_RANK per SIR vtf
+-- Filter out on OREBRO_INTERNAL
+-- Keep only PRICU dsc latest within patient
 
 --- PAR_HADM is a redefined PAR table adding a unique HADM_ID to each admission
 -- Keep only admissions where the patient was >= 18 yrs at admission
