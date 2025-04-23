@@ -44,6 +44,22 @@ WITH PAR_HADM AS (
     )
 ),
 
+-- Also, for DAOH calcuations, we need PAR admits at not only tertiary centers
+PAR_HADM_ALL AS (
+    SELECT *,
+           ROW_NUMBER() OVER ( 
+               ORDER BY LopNr,
+                        INDATUM,
+                        UTDATUM,
+                        CASE 
+                           WHEN SJUKHUS NOT IN ('11001', '11003', '51001', '12001', '21001', '64001', '41001', '41002', '55010') 
+                           THEN 0 ELSE 1 
+                        END
+           ) AS HADM_ID
+    FROM PAR
+    WHERE ALDER >= 18
+),
+
 ------------------------------------------------------------------------------
 -- CTE PAR_HADM_LAST_DSC:
 -- Calculates days since last discharge for patients who have a previous 
@@ -462,13 +478,19 @@ DX AS (
         P.Diagnos,
         CASE
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM asah) THEN 'ASAH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ane) THEN 'ANE'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM avm) THEN 'AVM'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM ich) THEN 'ICH'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM tbi) THEN 'TBI'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM ais) THEN 'AIS'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM abm) THEN 'ABM'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM cvt) THEN 'CVT'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM ence) THEN 'ENC'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM se) THEN 'SEP'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM cfx) THEN 'CFX'
             WHEN P.HADM_ID IN (SELECT HADM_ID FROM sdh) THEN 'SDH'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM hc) THEN 'HC'
+            WHEN P.HADM_ID IN (SELECT HADM_ID FROM tum) THEN 'TUM'
             ELSE 'OTHER'
         END AS DX_GROUP
     FROM
@@ -923,7 +945,7 @@ DAOH_90_STEP_1 AS (
         P.MVO,
         P.Sjukhus
     FROM SIR_BASDATA S
-    LEFT JOIN PAR_HADM P on S.LopNr = P.LopNr
+    LEFT JOIN PAR_HADM_ALL P on S.LopNr = P.LopNr
     -- Keep only joined PAR admits with discharge on the same day or later as ICU admit
     WHERE S.InskrTidPunkt / 86400 - P.UTDATUM <= 0
     -- Keep only joined PAR admimts with admission date within the DAOH-90 end date (inclusive of end date)
@@ -1040,7 +1062,7 @@ DAOH_180_STEP_1 AS (
         P.INDATUM,
         P.UTDATUM
     FROM SIR_BASDATA S
-    LEFT JOIN PAR_HADM P on S.LopNr = P.LopNr
+    LEFT JOIN PAR_HADM_ALL P on S.LopNr = P.LopNr
     -- Keep only joined PAR admits with discharge on the same day or later as ICU admit
     WHERE S.InskrTidPunkt / 86400 - P.UTDATUM <= 0
     -- Keep only joined PAR admimts with admission date within the DAOH-90 end date (inclusive of end date)
