@@ -119,25 +119,17 @@ read_file_with_fallback <- function(file_path) {
   })
 }
 
-read_sir_folder <- function(path, id_offset = 0, encoding_overrides = list(), decimal_commma = TRUE) {
+read_sir_folder <- function(path, id_offset = 0, encoding_overrides = list()) {
   files <- list.files(path, pattern = '\\.txt$', full.names = TRUE)
   names <- basename(files) %>% str_remove("\\.txt$")
   
-  read_sir_file <- function(file, name, decimal_comma) {
+  read_sir_file <- function(file, name) {
     encoding <- encoding_overrides[[name]] %||% "UTF-8"
-    if (decimal_comma) {
-      read_delim(file,
-                delim = "\t",
-                escape_double = FALSE,
-                trim_ws = TRUE,
-                locale = locale(decimal_mark = ",", encoding = encoding))
-    } else {
-      read_delim(file,
-                delim = "\t",
-                escape_double = FALSE,
-                trim_ws = TRUE,
-                locale = locale(decimal_mark = ".", encoding = encoding))
-      }
+    read_delim(file,
+               delim = "\t",
+               escape_double = FALSE,
+               trim_ws = TRUE,
+               locale = locale(decimal_mark = ",", encoding = encoding))
   }
   
   sir <- map2(files, names, read_sir_file) %>%
@@ -158,8 +150,7 @@ sir_old <- read_sir_folder(
   encoding_overrides = list(
     Basdata = "ISO-8859-1",
     Saps3 = "UTF-8"  # optional, as it's the default
-  ),
-  decimal_comma = TRUE
+  )
 )
 
 sir_new <- read_sir_folder(
@@ -168,8 +159,7 @@ sir_new <- read_sir_folder(
   encoding_overrides = list(
     Basdata = "ISO-8859-1",
     Saps3 = "Windows-1252"
-  ),
-  decimal_comma = FALSE
+  )
 )
 
 # Deduplicate new Basdata
