@@ -178,7 +178,8 @@ sir_combined <- map(names(sir_old), function(name) {
   df2 <- sir_new[[name]]
   df2 <- coerce_column_types(df1, df2)
   bind_rows(df1, df2)
-}) %>% set_names(names(sir_old))
+}) %>% 
+  set_names(names(sir_old))
 
 # Write all merged SIR tables to DB with UTF-8 encoding
 
@@ -190,6 +191,19 @@ walk2(names(sir_combined), sir_combined, ~{
   )
   dbWriteTable(db, table_name, df_clean, overwrite = TRUE)
 })
+
+# SIR SAPS3 is f***ed and reads some vals with incorrect decimal placements.
+# Code below fixes this by overwriting errors. 
+dbGetQuery(db, "SELECT * FROM SIR_SAPS3") %>%
+  as_tibble() %>%
+  mutate(SAPS3_pHMin = case_when(between(SAPS3_pHMin, 10, 100) ~ SAPS3_pHMin/10,
+                                 between(SAPS3_pHMin, 100, 1000) ~ SAPS3_pHMin/100,
+                                 TRUE ~ SAPS3_pHMin/10),
+         SAPS3_KroppstempMax = if_else(SAPS3_KroppstempMax>100, SAPS3_KroppstempMax/10, SAPS3_KroppstempMax),
+         SAPS3_PaO2 = case_when(between(SAPS3_PaO2, 10, 100) ~ SAPS3_PaO2/10,
+                                between(SAPS3_PaO2, 100, 1000) ~ SAPS3_PaO2/100,
+                                TRUE ~ SAPS3_PaO2/10)) %>%
+  dbWriteTable(db, "SIR_SAPS3", ., overwrite = TRUE)
 
 message("✅ All tables (LISA, Socialstyrelsen, SIR) written to db.sqlite.")
 
