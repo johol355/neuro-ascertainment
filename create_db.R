@@ -198,11 +198,11 @@ dbGetQuery(db, "SELECT * FROM SIR_SAPS3") %>%
   as_tibble() %>%
   mutate(SAPS3_pHMin = case_when(between(SAPS3_pHMin, 10, 100) ~ SAPS3_pHMin/10,
                                  between(SAPS3_pHMin, 100, 1000) ~ SAPS3_pHMin/100,
-                                 TRUE ~ SAPS3_pHMin/10),
+                                 TRUE ~ SAPS3_pHMin),
          SAPS3_KroppstempMax = if_else(SAPS3_KroppstempMax>100, SAPS3_KroppstempMax/10, SAPS3_KroppstempMax),
          SAPS3_PaO2 = case_when(between(SAPS3_PaO2, 10, 100) ~ SAPS3_PaO2/10,
                                 between(SAPS3_PaO2, 100, 1000) ~ SAPS3_PaO2/100,
-                                TRUE ~ SAPS3_PaO2/10)) %>%
+                                TRUE ~ SAPS3_PaO2)) %>%
   dbWriteTable(db, "SIR_SAPS3", ., overwrite = TRUE)
 
 message("✅ All tables (LISA, Socialstyrelsen, SIR) written to db.sqlite.")
