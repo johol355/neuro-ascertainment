@@ -119,25 +119,17 @@ read_file_with_fallback <- function(file_path) {
   })
 }
 
-read_sir_folder <- function(path, id_offset = 0, encoding_overrides = list(), decimal_commma = TRUE) {
+read_sir_folder <- function(path, id_offset = 0, encoding_overrides = list()) {
   files <- list.files(path, pattern = '\\.txt$', full.names = TRUE)
   names <- basename(files) %>% str_remove("\\.txt$")
   
-  read_sir_file <- function(file, name, decimal_comma) {
+  read_sir_file <- function(file, name) {
     encoding <- encoding_overrides[[name]] %||% "UTF-8"
-    if (decimal_comma) {
-      read_delim(file,
-                delim = "\t",
-                escape_double = FALSE,
-                trim_ws = TRUE,
-                locale = locale(decimal_mark = ",", encoding = encoding))
-    } else {
-      read_delim(file,
-                delim = "\t",
-                escape_double = FALSE,
-                trim_ws = TRUE,
-                locale = locale(decimal_mark = ".", encoding = encoding))
-      }
+    read_delim(file,
+               delim = "\t",
+               escape_double = FALSE,
+               trim_ws = TRUE,
+               locale = locale(decimal_mark = ",", encoding = encoding))
   }
   
   sir <- map2(files, names, read_sir_file) %>%
@@ -158,8 +150,7 @@ sir_old <- read_sir_folder(
   encoding_overrides = list(
     Basdata = "ISO-8859-1",
     Saps3 = "UTF-8"  # optional, as it's the default
-  ),
-  decimal_comma = TRUE
+  )
 )
 
 sir_new <- read_sir_folder(
@@ -168,8 +159,7 @@ sir_new <- read_sir_folder(
   encoding_overrides = list(
     Basdata = "ISO-8859-1",
     Saps3 = "Windows-1252"
-  ),
-  decimal_comma = FALSE
+  )
 )
 
 # Deduplicate new Basdata
@@ -188,7 +178,8 @@ sir_combined <- map(names(sir_old), function(name) {
   df2 <- sir_new[[name]]
   df2 <- coerce_column_types(df1, df2)
   bind_rows(df1, df2)
-}) %>% set_names(names(sir_old))
+}) %>% 
+  set_names(names(sir_old))
 
 # Write all merged SIR tables to DB with UTF-8 encoding
 
@@ -200,6 +191,19 @@ walk2(names(sir_combined), sir_combined, ~{
   )
   dbWriteTable(db, table_name, df_clean, overwrite = TRUE)
 })
+
+# SIR SAPS3 is f***ed and reads some vals with incorrect decimal placements.
+# Code below fixes this by overwriting errors. 
+dbGetQuery(db, "SELECT * FROM SIR_SAPS3") %>%
+  as_tibble() %>%
+  mutate(SAPS3_pHMin = case_when(between(SAPS3_pHMin, 10, 100) ~ SAPS3_pHMin/10,
+                                 between(SAPS3_pHMin, 100, 1000) ~ SAPS3_pHMin/100,
+                                 TRUE ~ SAPS3_pHMin),
+         SAPS3_KroppstempMax = if_else(SAPS3_KroppstempMax>100, SAPS3_KroppstempMax/10, SAPS3_KroppstempMax),
+         SAPS3_PaO2 = case_when(between(SAPS3_PaO2, 10, 100) ~ SAPS3_PaO2/10,
+                                between(SAPS3_PaO2, 100, 1000) ~ SAPS3_PaO2/100,
+                                TRUE ~ SAPS3_PaO2)) %>%
+  dbWriteTable(db, "SIR_SAPS3", ., overwrite = TRUE)
 
 message("✅ All tables (LISA, Socialstyrelsen, SIR) written to db.sqlite.")
 
