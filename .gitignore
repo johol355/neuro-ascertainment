@@ -7,5 +7,6 @@
 /sql-queries/__pycache__/
 *.DS_Store
 *.Rhistory
+*.ipynb
 /sql-queries/diagnosis_flowcharts_files
 .Rproj.user
